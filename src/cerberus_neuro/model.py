@@ -137,6 +137,11 @@ class CerberusModel(nn.Module):
     binary line-condition, 5-channel virtual staining.
     """
 
+    # Stable identity for training-loop dispatch. Survives sys.modules purges
+    # that would otherwise break isinstance checks (different class objects
+    # with the same name after a re-import).
+    model_kind = "cerberus"
+
     def __init__(
         self,
         in_channels: int = 1,
@@ -182,6 +187,8 @@ class BaselineDiseaseClassifier(nn.Module):
     upper bound: it answers "how much of that signal is recoverable from
     brightfield alone, when the encoder is forced to also predict fluorescence?".
     """
+
+    model_kind = "baseline"
 
     def __init__(self, in_channels: int = 6, n_classes: int = 2):
         super().__init__()

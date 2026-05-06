@@ -220,10 +220,17 @@ def train(
     resume_from: Path | None = None,
 ) -> dict:
     """Train Cerberus or baseline; returns final state summary."""
-    is_cerberus = isinstance(model, CerberusModel)
-    is_baseline = isinstance(model, BaselineDiseaseClassifier)
+    # Dispatch on a stable class attribute rather than isinstance, so that
+    # sys.modules cache resets in long-running notebooks (where the model
+    # was instantiated before training.py was reimported) don't break.
+    kind = getattr(model, "model_kind", None)
+    is_cerberus = kind == "cerberus"
+    is_baseline = kind == "baseline"
     if not (is_cerberus or is_baseline):
-        raise ValueError(f"Unsupported model type: {type(model).__name__}")
+        raise ValueError(
+            f"Unsupported model type: {type(model).__name__} (model_kind={kind!r}). "
+            "Expected CerberusModel or BaselineDiseaseClassifier."
+        )
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(cfg.seed)
