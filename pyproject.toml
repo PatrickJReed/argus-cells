@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cerberus-neuro"
-version = "0.0.7"
+version = "0.0.8"
 description = "Cerberus-inspired multi-task ResNet34 for the Broad NeuroPainting Cell Painting dataset (cell-type classification, virtual staining, disease-state classification)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -46,6 +46,7 @@ dev = [
 training = [
   "torch>=2.4",
   "torchvision>=0.19",
+  "pytorch-msssim>=1.0",
 ]
 
 [project.urls]
