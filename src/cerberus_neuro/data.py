@@ -17,6 +17,7 @@ Two entry points:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -180,6 +181,37 @@ def subset_manifest(
     return manifest
 
 
+def well_level_split(
+    manifest: pd.DataFrame,
+    val_frac: float = 0.2,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Hold out ``val_frac`` of wells per ``(cell_type, line_condition)`` for validation.
+
+    Splits at the (Metadata_Plate, Metadata_Well) level so all sites from a
+    given well land in the same split (no within-well leakage between train
+    and val). Stratified by cell type x condition so each combination is
+    represented in both splits.
+
+    Returns
+    -------
+    (train_manifest, val_manifest) — same columns as the input manifest.
+    """
+    rng = np.random.default_rng(seed)
+    train_keys, val_keys = [], []
+    for _, grp in manifest.groupby(["Metadata_cell_type", "Metadata_line_condition"]):
+        wells = grp[["Metadata_Plate", "Metadata_Well"]].drop_duplicates().reset_index(drop=True)
+        n_val = max(1, int(round(len(wells) * val_frac)))
+        idx = rng.permutation(len(wells))
+        val_keys.append(wells.iloc[idx[:n_val]])
+        train_keys.append(wells.iloc[idx[n_val:]])
+    train_keys_df = pd.concat(train_keys, ignore_index=True)
+    val_keys_df = pd.concat(val_keys, ignore_index=True)
+    train = manifest.merge(train_keys_df, on=["Metadata_Plate", "Metadata_Well"], how="inner")
+    val = manifest.merge(val_keys_df, on=["Metadata_Plate", "Metadata_Well"], how="inner")
+    return train, val
+
+
 def _load_image(s3, url: str, cache_dir: Path) -> np.ndarray:
     key = _key_from_url(url)
     local = _download(s3, key, cache_dir / key)
@@ -324,11 +356,16 @@ class NeuroPaintingDataset(IterableDataset):
         s3 = _s3_client()
         cache = Path(self.cache_dir)
         stride = self.tile_stride or self.crop_size
-        rng = np.random.default_rng(self.seed + worker_id)
+
+        # Mix in time so each __iter__ call (i.e., each epoch) gets a fresh
+        # shuffle and a fresh augmentation RNG. Using only self.seed + worker_id
+        # would replay the identical batch sequence every epoch.
+        epoch_seed = self.seed + worker_id + (time.time_ns() & 0xFFFFFFFF)
+        rng = np.random.default_rng(epoch_seed)
 
         rows = self.manifest.iloc[worker_id::n_workers].reset_index(drop=True)
         if self.shuffle:
-            rows = rows.sample(frac=1.0, random_state=self.seed + worker_id).reset_index(drop=True)
+            rows = rows.sample(frac=1.0, random_state=int(epoch_seed % (2**32))).reset_index(drop=True)
 
         for _, row in rows.iterrows():
             try:
