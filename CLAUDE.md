@@ -8,7 +8,7 @@ For the **strategic background** behind the project (why it exists, public-versi
 
 `cerberus-neuro` is a portfolio research artifact authored by Patrick J. Reed, Ph.D. (computational biologist, 15+ years; recent Principal Scientist at Bristol Myers Squibb). The project is a **public reproduction** of a multi-task vision proof-of-concept originally built at BMS in 2025 on the same public Broad NeuroPainting dataset. Internal version was not transferred or productionized before April 2026; the public rebuild here exists so the work is citable and extensible.
 
-Three-headed (Cerberus-inspired) ResNet34 with a shared image encoder and three task heads: cell-type classification, virtual staining of 5 Cell Painting channels from brightfield, and disease-state classification on 22q11.2 deletion vs control iPSC lines.
+Three-headed (Cerberus-inspired) ResNet34 with a shared image encoder and three task heads: cell-type classification, virtual staining of 5 Cell Painting channels from brightfield, and disease-state classification on 22q11.2 deletion vs control iPSC lines. v0 trains this alongside an all-channel single-task disease-classifier baseline (same ResNet34 encoder, 6-channel input, single line-condition head) so the Cerberus disease number is reported against a meaningful upper bound: "what fraction of the all-channel disease signal is recoverable from brightfield alone, at 1/6 the assay cost?".
 
 The artifact is positioned for senior IC roles at:
 - **Recursion, Insitro, Iambic Therapeutics** — image-based CRISPR perturbation / Cell Painting / multi-task vision specifically
@@ -116,12 +116,12 @@ Rough order; revisit as work proceeds. All compute steps run on Colab (or local 
 
 0. **Run `notebooks/00_environment_smoke.ipynb` on Colab** to confirm the runtime is good (GPU, HF login, Drive mount).
 1. **Data exploration** (`notebooks/01_data_exploration.ipynb`): pull a small NeuroPainting subset from the Cell Painting Gallery, inspect images per cell type / per condition, document the data shape and per-channel statistics. Key v0 unblocker: confirm the data pipeline works end-to-end on Colab Free.
-2. **Data pipeline** (`src/cerberus_neuro/data.py`): efficient image loading + per-channel normalization + per-task label assembly. Use `torch.utils.data.IterableDataset` over S3 streaming to avoid full local download.
-3. **Architecture** (`src/cerberus_neuro/model.py`): ResNet34 backbone + three task heads. From scratch (no pretrained ImageNet weights) for the clean-public-reproduction angle.
-4. **Training loop** (`src/cerberus_neuro/training.py`): multi-task loss with task weighting; checkpoint to Drive + HF every N steps; resumable across Colab session restarts.
-5. **Scoped v0 training run** (`notebooks/02_train.ipynb`): subset of plates, lower resolution (256 → 128 if needed), short epochs. Demonstrate convergence; push checkpoint to HF as `patrickjreed/cerberus-neuro-v0`.
-6. **Evaluation** (`notebooks/03_eval.ipynb`): cell-type accuracy, per-channel virtual-staining MSE/SSIM, disease-state accuracy + AUC. Worked-through cases with figures.
-7. **Repo polish + writeup**: clean notebooks, figures, paper-style README extension or blog post. Ship.
+2. **Data pipeline** (`src/cerberus_neuro/data.py`): efficient image loading + per-channel normalization + per-task label assembly. Use `torch.utils.data.IterableDataset` over S3 streaming to avoid full local download. Cell-aware crop selection: tile each site into non-overlapping `crop_size` patches, score each by CellProfiler centroid count, yield the top `crops_per_site` tiles.
+3. **Architecture** (`src/cerberus_neuro/model.py`): ResNet34 backbone + three task heads (`CerberusModel`). Plus `BaselineDiseaseClassifier` (same encoder, 6-channel input, single disease head) as the all-channel upper-bound baseline. Both from scratch (no pretrained ImageNet weights) for the clean-public-reproduction angle.
+4. **Training loop** (`src/cerberus_neuro/training.py`): multi-task loss with Kendall uncertainty weighting (or fixed magnitude-scaled weights); checkpoint to Drive + HF every N steps; resumable across Colab session restarts. Single training entry point that handles both `CerberusModel` (3 heads) and `BaselineDiseaseClassifier` (1 head) configs.
+5. **Scoped v0 training runs** (`notebooks/02_train.ipynb`): two paired runs on the same scoped subset (plates, resolution, epochs): (a) `CerberusModel` brightfield-only multi-task → HF as `patrickjreed/cerberus-neuro-v0`; (b) `BaselineDiseaseClassifier` 6-channel single-task → HF as `patrickjreed/cerberus-neuro-v0-baseline`.
+6. **Evaluation** (`notebooks/03_eval.ipynb`): for Cerberus, cell-type accuracy + per-channel virtual-staining MSE/SSIM + disease-state accuracy + AUC. For baseline, disease-state accuracy + AUC. Report the gap (Cerberus disease AUC vs baseline disease AUC) and the inference-cost ratio as the headline result. Worked-through cases with figures.
+7. **Repo polish + writeup**: clean notebooks, figures, paper-style README extension or blog post framing the paired-experiment narrative ("Cerberus recovers Z% of the all-channel disease signal at 1/6 the assay cost"). Ship.
 
 Stretch (v1+):
 

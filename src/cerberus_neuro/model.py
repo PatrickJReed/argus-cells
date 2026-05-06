@@ -1,15 +1,28 @@
-"""Cerberus-inspired multi-task model.
+"""Cerberus-inspired multi-task model + all-channel baseline.
 
-Single ResNet34 encoder feeding three heterogeneous task heads:
+Two modules in this file:
 
-- :class:`VirtualStainingHead` — U-Net-style decoder predicting 5
-  fluorescence channels from brightfield input.
-- :class:`ClassifierHead` (cell type) — 4-way softmax (stem / progen /
-  neuron / astro).
-- :class:`ClassifierHead` (line condition) — binary (control vs deletion).
+1. :class:`CerberusModel` — single ResNet34 encoder feeding three heterogeneous
+   task heads from a 1-channel brightfield input:
+
+   - :class:`VirtualStainingHead` — U-Net-style decoder predicting 5
+     fluorescence channels.
+   - :class:`ClassifierHead` (cell type) — 4-way softmax
+     (stem / progen / neuron / astro).
+   - :class:`ClassifierHead` (line condition) — binary (control vs deletion).
+
+   This is the headline v0 model. The novel claim is "disease state
+   recoverable from brightfield alone when the encoder is forced to also
+   predict fluorescence."
+
+2. :class:`BaselineDiseaseClassifier` — same ResNet34 encoder but takes the
+   full 6-channel stack (BF + 5 fluorescence) as input, with only the
+   line-condition head. Establishes the all-channel disease-accuracy upper
+   bound the Cerberus model is compared against in the paired-experiment
+   v0 evaluation.
 
 ResNet34 follows the standard torchvision implementation but with a
-single-channel input conv. Trained from scratch; no ImageNet weights
+configurable input-channel conv. Trained from scratch; no ImageNet weights
 (per ``CLAUDE.md`` scope discipline for the public reproduction).
 
 For a 256x256 input the encoder produces feature maps at strides
@@ -154,5 +167,36 @@ class CerberusModel(nn.Module):
             "cell_type_head": count(self.cell_type_head),
             "line_condition_head": count(self.line_condition_head),
             "fluorescence_head": count(self.fluorescence_head),
+            "total": count(self),
+        }
+
+
+class BaselineDiseaseClassifier(nn.Module):
+    """All-channel single-task disease classifier (the v0 upper-bound baseline).
+
+    Same ResNet34 encoder as :class:`CerberusModel`, but takes the full 6-channel
+    stack (brightfield + 5 fluorescence) as input and exposes only the
+    line-condition head. Establishes "what's the best disease accuracy you can
+    get with all the data, no virtual-staining task to share gradient with?".
+    The Cerberus model's disease number is meaningful in comparison to this
+    upper bound: it answers "how much of that signal is recoverable from
+    brightfield alone, when the encoder is forced to also predict fluorescence?".
+    """
+
+    def __init__(self, in_channels: int = 6, n_classes: int = 2):
+        super().__init__()
+        self.encoder = ResNet34Encoder(in_channels=in_channels)
+        self.head = ClassifierHead(512, n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, _, _, _, x4 = self.encoder(x)
+        return self.head(x4)
+
+    def parameter_count(self) -> dict[str, int]:
+        def count(m: nn.Module) -> int:
+            return sum(p.numel() for p in m.parameters() if p.requires_grad)
+        return {
+            "encoder": count(self.encoder),
+            "head": count(self.head),
             "total": count(self),
         }
