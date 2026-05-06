@@ -150,14 +150,30 @@ def load_checkpoint(
 ) -> tuple[int, int]:
     state = torch.load(path, map_location="cpu", weights_only=False)
     model.load_state_dict(state["model"])
+    # Each subordinate state load is wrapped: a config change between runs
+    # (e.g., switching CosineAnnealingLR -> SequentialLR for warmup) will
+    # produce an incompatible state dict for that one component. Warn and
+    # continue with a freshly-initialized component rather than crash.
     if optimizer and state.get("optimizer"):
-        optimizer.load_state_dict(state["optimizer"])
+        try:
+            optimizer.load_state_dict(state["optimizer"])
+        except Exception as e:
+            print(f"WARN: optimizer state incompatible ({e}); using fresh optimizer")
     if scheduler and state.get("scheduler"):
-        scheduler.load_state_dict(state["scheduler"])
+        try:
+            scheduler.load_state_dict(state["scheduler"])
+        except Exception as e:
+            print(f"WARN: scheduler state incompatible ({e}); using fresh schedule")
     if kendall is not None and state.get("kendall"):
-        kendall.load_state_dict(state["kendall"])
+        try:
+            kendall.load_state_dict(state["kendall"])
+        except Exception as e:
+            print(f"WARN: kendall state incompatible ({e}); using fresh log-vars")
     if scaler is not None and state.get("scaler"):
-        scaler.load_state_dict(state["scaler"])
+        try:
+            scaler.load_state_dict(state["scaler"])
+        except Exception as e:
+            print(f"WARN: scaler state incompatible ({e}); using fresh scaler")
     return state.get("step", 0), state.get("epoch", 0)
 
 
