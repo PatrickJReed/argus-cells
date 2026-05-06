@@ -234,6 +234,22 @@ def crop_cell_count(centroids: np.ndarray | None, y: int, x: int, size: int) -> 
     return int(inside.sum())
 
 
+def apply_dihedral(channels: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Random D4 (4 rotations × optional horizontal flip) over a ``(C, H, W)`` crop.
+
+    Cell Painting biology is invariant to rotation and reflection, so the D4
+    dihedral group is a free 8× data multiplier. The transform is applied
+    uniformly across the channel axis so brightfield input and fluorescence
+    target stay registered.
+    """
+    k = int(rng.integers(0, 4))
+    if k:
+        channels = np.rot90(channels, k, axes=(-2, -1))
+    if rng.random() < 0.5:
+        channels = channels[:, :, ::-1]
+    return np.ascontiguousarray(channels)
+
+
 def tile_top_cells(
     centroids: np.ndarray | None,
     h: int,
@@ -282,6 +298,12 @@ class NeuroPaintingDataset(IterableDataset):
     channels so brightfield input and fluorescence target stay aligned. Sites
     missing a ``Cells.csv`` are skipped; sites with fewer qualifying tiles
     than ``crops_per_site`` yield however many are available.
+
+    When ``augment=True`` (default), each yielded crop is run through a random
+    D4 transform (one of 4 rotations × optional horizontal flip) applied
+    identically across all 6 channels. Geometric augmentation only; no
+    photometric jitter in v0 since Cell Painting acquisition is tightly
+    normalized.
     """
 
     manifest: pd.DataFrame
@@ -290,6 +312,7 @@ class NeuroPaintingDataset(IterableDataset):
     crops_per_site: int = 4
     min_cells_per_crop: int = 1
     tile_stride: int | None = None
+    augment: bool = True
     shuffle: bool = True
     seed: int = 0
 
@@ -301,6 +324,7 @@ class NeuroPaintingDataset(IterableDataset):
         s3 = _s3_client()
         cache = Path(self.cache_dir)
         stride = self.tile_stride or self.crop_size
+        rng = np.random.default_rng(self.seed + worker_id)
 
         rows = self.manifest.iloc[worker_id::n_workers].reset_index(drop=True)
         if self.shuffle:
@@ -335,6 +359,8 @@ class NeuroPaintingDataset(IterableDataset):
             )
             for y, x, _ncells in selected:
                 crop = channels[:, y:y + self.crop_size, x:x + self.crop_size]
+                if self.augment:
+                    crop = apply_dihedral(crop, rng)
                 yield (
                     torch.from_numpy(crop[:1].copy()),
                     torch.from_numpy(crop[1:].copy()),

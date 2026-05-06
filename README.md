@@ -45,6 +45,8 @@ v0 uses a scoped subset (a handful of plates per cell type at 20×) so a full tr
 
 **Cell-aware tile selection.** Each 2160×2160 site is tiled into non-overlapping 256×256 patches; tiles are scored by the count of CellProfiler centroids they contain (read from the bucket's `Cells.csv` analysis outputs); the top-N tiles per site are fed to the model. This drops background-only crops without committing to per-cell segmentation, and aligns the model's input distribution with cell-rich regions where the biological signal lives.
 
+**Augmentation.** Random D4 dihedral transforms (4 rotations × optional horizontal flip) applied identically across all 6 channels per crop. Cell Painting biology is rotation- and reflection-invariant, so this gives an 8× data multiplier without changing label or pixel-level alignment. No photometric jitter in v0; the assay is tightly normalized.
+
 **Multi-task loss.** Kendall uncertainty weighting (Kendall, Gal, Cipolla 2018): one trainable log-variance scalar per task, joint loss `Σ_i 0.5·exp(-log_var_i)·L_i + 0.5·log_var_i`. Per-task losses:
 
 - Cell type, line condition: `F.cross_entropy`.
