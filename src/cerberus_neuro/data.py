@@ -8,8 +8,10 @@ Two entry points:
 - :class:`NeuroPaintingDataset` — IterableDataset streaming
   ``(brightfield[1, h, w], fluorescence[5, h, w], cell_type, line_condition)``
   tuples. v0 strategy: random ``crop_size`` crops from each loaded 2160×2160
-  site, same coordinates across all 6 channels. Cell segmentation is not used
-  in v0 (CellProfiler outlines under ``publication_data/`` are a v1 option).
+  site, same coordinates across all 6 channels. Crops are rejected unless
+  they contain at least ``min_cells_per_crop`` CellProfiler cell centroids
+  (default 1) so we don't train on background-only tiles. Per-cell crops via
+  the segmentation outlines under ``publication_data/`` remain a v1 option.
 """
 
 from __future__ import annotations
@@ -184,6 +186,53 @@ def _load_image(s3, url: str, cache_dir: Path) -> np.ndarray:
         return np.asarray(im)
 
 
+_CENTROID_COL_CANDIDATES = [
+    ("AreaShape_Center_Y", "AreaShape_Center_X"),
+    ("Location_Center_Y",  "Location_Center_X"),
+    ("Center_Y",           "Center_X"),
+]
+
+
+def load_cell_centroids(
+    s3,
+    batch: str,
+    plate: str,
+    well: str,
+    site,
+    cache_dir: Path,
+) -> np.ndarray:
+    """Return an ``Nx2`` array of ``(y, x)`` cell centroids in image-pixel space.
+
+    Reads CellProfiler ``Cells.csv`` from
+    ``workspace/analysis/<batch>/<plate>/analysis/<plate>-<well>-<site>/Cells.csv``.
+    Tries common centroid column-name variants (CP version dependent).
+    """
+    site_str = str(site)
+    key = (
+        f"{WORKSPACE_PREFIX}analysis/{batch}/{plate}/analysis/"
+        f"{plate}-{well}-{site_str}/Cells.csv"
+    )
+    local = _download(s3, key, Path(cache_dir) / key)
+    df = pd.read_csv(local)
+    for y_col, x_col in _CENTROID_COL_CANDIDATES:
+        if y_col in df.columns and x_col in df.columns:
+            return np.stack([df[y_col].to_numpy(), df[x_col].to_numpy()], axis=1)
+    raise KeyError(
+        f"No centroid columns in {key}; first columns: {list(df.columns)[:20]}"
+    )
+
+
+def crop_cell_count(centroids: np.ndarray | None, y: int, x: int, size: int) -> int:
+    """How many centroids fall inside the ``[y, y+size) x [x, x+size)`` crop."""
+    if centroids is None or len(centroids) == 0:
+        return 0
+    inside = (
+        (centroids[:, 0] >= y) & (centroids[:, 0] < y + size) &
+        (centroids[:, 1] >= x) & (centroids[:, 1] < x + size)
+    )
+    return int(inside.sum())
+
+
 @dataclass
 class NeuroPaintingDataset(IterableDataset):
     """IterableDataset streaming (brightfield, fluorescence, cell_type, line_condition).
@@ -200,12 +249,20 @@ class NeuroPaintingDataset(IterableDataset):
     For each (plate, well, site) row in the manifest, ``crops_per_site``
     independent random crops are yielded. Same crop coordinates are applied to
     all 6 channels so brightfield input and fluorescence target stay aligned.
+
+    When ``min_cells_per_crop > 0``, the per-site CellProfiler ``Cells.csv``
+    centroids are loaded and crops are rejected (up to ``max_crop_attempts``
+    tries each) unless they contain at least ``min_cells_per_crop`` cell
+    centroids. Sites where every attempt fails skip the remaining requested
+    crops; sites missing a Cells.csv are dropped entirely.
     """
 
     manifest: pd.DataFrame
     cache_dir: Path
     crop_size: int = 256
     crops_per_site: int = 4
+    min_cells_per_crop: int = 1
+    max_crop_attempts: int = 32
     shuffle: bool = True
     seed: int = 0
 
@@ -216,6 +273,7 @@ class NeuroPaintingDataset(IterableDataset):
 
         rng = np.random.default_rng(self.seed + worker_id)
         s3 = _s3_client()
+        cache = Path(self.cache_dir)
 
         rows = self.manifest.iloc[worker_id::n_workers].reset_index(drop=True)
         if self.shuffle:
@@ -224,20 +282,36 @@ class NeuroPaintingDataset(IterableDataset):
         for _, row in rows.iterrows():
             try:
                 channels = np.stack(
-                    [_load_image(s3, row[f"URL_{c}"], Path(self.cache_dir)) for c in CHANNEL_ORDER],
+                    [_load_image(s3, row[f"URL_{c}"], cache) for c in CHANNEL_ORDER],
                     axis=0,
                 )
+                centroids = None
+                if self.min_cells_per_crop > 0:
+                    centroids = load_cell_centroids(
+                        s3,
+                        row["batch"], row["Metadata_Plate"],
+                        row["Metadata_Well"], row["Metadata_Site"],
+                        cache,
+                    )
             except Exception:
                 continue
-            channels = channels.astype(np.float32) / 65535.0
 
+            channels = channels.astype(np.float32) / 65535.0
             ct = CELL_TYPE_TO_IDX[row["Metadata_cell_type"]]
             cond = LINE_CONDITION_TO_IDX[row["Metadata_line_condition"]]
 
             _, h, w = channels.shape
             for _ in range(self.crops_per_site):
-                y = int(rng.integers(0, h - self.crop_size + 1))
-                x = int(rng.integers(0, w - self.crop_size + 1))
+                y, x = -1, -1
+                for _ in range(self.max_crop_attempts):
+                    yy = int(rng.integers(0, h - self.crop_size + 1))
+                    xx = int(rng.integers(0, w - self.crop_size + 1))
+                    n_cells = crop_cell_count(centroids, yy, xx, self.crop_size)
+                    if self.min_cells_per_crop <= 0 or n_cells >= self.min_cells_per_crop:
+                        y, x = yy, xx
+                        break
+                if y < 0:
+                    continue
                 crop = channels[:, y:y + self.crop_size, x:x + self.crop_size]
                 yield (
                     torch.from_numpy(crop[:1].copy()),
