@@ -197,6 +197,11 @@ def _push_to_hf(local_path: Path, repo_id: str, path_in_repo: str | None = None)
     )
 
 
+# Display names for the 5 fluorescence channels in CHANNEL_ORDER position.
+# (The data pipeline stacks brightfield first, then these in this order.)
+_FLUO_CH_NAMES = ["DNA", "Mito", "AGP", "ER", "RNA"]
+
+
 @torch.no_grad()
 def evaluate(
     model: nn.Module,
@@ -208,6 +213,10 @@ def evaluate(
     n = 0
     correct_ct = correct_cond = 0
     sum_l_ct = sum_l_cond = sum_l_vs = 0.0
+    n_fluo = len(_FLUO_CH_NAMES)
+    sum_l1_per_ch = torch.zeros(n_fluo)
+    sum_ssim_per_ch = torch.zeros(n_fluo)
+
     for bf, fluo, ct, cond in loader:
         bf, fluo, ct, cond = (t.to(device) for t in (bf, fluo, ct, cond))
         if is_cerberus:
@@ -217,24 +226,39 @@ def evaluate(
             sum_l_vs += virtual_staining_loss(out.fluorescence_pred, fluo).item() * bf.size(0)
             correct_ct += (out.cell_type_logits.argmax(dim=1) == ct).sum().item()
             correct_cond += (out.line_condition_logits.argmax(dim=1) == cond).sum().item()
+
+            # Per-channel virtual-staining quality. L1 is per-pixel mean abs error;
+            # SSIM is computed per channel against the corresponding target.
+            l1_ch = (out.fluorescence_pred - fluo).abs().mean(dim=(0, 2, 3)).cpu()
+            sum_l1_per_ch += l1_ch * bf.size(0)
+            for c in range(n_fluo):
+                s = ssim(
+                    out.fluorescence_pred[:, c:c + 1].float(),
+                    fluo[:, c:c + 1].float(),
+                    data_range=1.0, size_average=True,
+                )
+                sum_ssim_per_ch[c] += s.item() * bf.size(0)
         else:
             logits = model(torch.cat([bf, fluo], dim=1))
             sum_l_cond += F.cross_entropy(logits, cond).item() * bf.size(0)
             correct_cond += (logits.argmax(dim=1) == cond).sum().item()
         n += bf.size(0)
 
-    out = {
+    metrics: dict[str, float] = {
         "n_samples": n,
         "acc_line_condition": correct_cond / max(n, 1),
         "L_line_condition": sum_l_cond / max(n, 1),
     }
     if is_cerberus:
-        out.update({
+        metrics.update({
             "acc_cell_type": correct_ct / max(n, 1),
             "L_cell_type": sum_l_ct / max(n, 1),
             "L_virtual_staining": sum_l_vs / max(n, 1),
         })
-    return out
+        for c, name in enumerate(_FLUO_CH_NAMES):
+            metrics[f"L1_{name}"] = sum_l1_per_ch[c].item() / max(n, 1)
+            metrics[f"SSIM_{name}"] = sum_ssim_per_ch[c].item() / max(n, 1)
+    return metrics
 
 
 def train(
