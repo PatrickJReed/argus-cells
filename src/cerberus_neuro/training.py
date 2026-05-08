@@ -92,37 +92,41 @@ def virtual_staining_loss(
     return l1_weight * l1 + ssim_weight * (1.0 - s)
 
 
-def segmentation_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+def segmentation_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Per-pixel binary cross-entropy treating each fluorescence channel as a
     soft organelle-membership probability mask.
 
-    Interpretation: ``target[b, c, y, x]`` is the (normalized) fluorescence
-    intensity of organelle ``c`` at pixel ``(y, x)`` in sample ``b``. Higher
-    intensity = higher probability the pixel belongs to that organelle
-    compartment. ``pred`` is the model's per-pixel sigmoid output in [0, 1].
+    ``logits`` is the model's raw output (NO sigmoid applied; the head returns
+    logits to allow this fused-with-sigmoid path which is numerically stable
+    under AMP autocast).
+    ``target[b, c, y, x]`` is the normalized fluorescence intensity in [0, 1] —
+    treated as a soft probability that the pixel belongs to organelle ``c``.
 
     BCE is preferred over L1 because:
-    - Per-pixel minimum is at ``pred == target`` (no constant-prediction
+    - Per-pixel minimum is at ``sigmoid(logits) == target`` (no constant-prediction
       degenerate minimum the way L1 has at the data mean).
     - Aggressive gradient near 0 and 1 pushes background pixels confidently
       toward 0 and organelle pixels toward 1.
     - Sparse-channel imbalance handled naturally (most pixels contribute
       small loss because they're easy).
     """
-    return F.binary_cross_entropy(pred, target, reduction="mean")
+    return F.binary_cross_entropy_with_logits(logits, target, reduction="mean")
 
 
-def soft_iou(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+def soft_iou(probs: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     """Soft intersection-over-union per channel.
 
     Returns a tensor of shape ``(C,)`` with one IoU per fluorescence channel.
     Soft (no thresholding): treats the [0, 1] predictions and targets as
-    membership scores. ``intersection = sum(pred * target)``,
-    ``union = sum(pred + target - pred * target)``.
+    membership scores. ``intersection = sum(probs * target)``,
+    ``union = sum(probs + target - probs * target)``.
+
+    Caller is responsible for applying ``torch.sigmoid()`` to the model's
+    raw logit output before passing to this function.
     """
-    # pred, target: (B, C, H, W)
-    intersection = (pred * target).sum(dim=(0, 2, 3))
-    union = (pred + target - pred * target).sum(dim=(0, 2, 3))
+    # probs, target: (B, C, H, W) in [0, 1]
+    intersection = (probs * target).sum(dim=(0, 2, 3))
+    union = (probs + target - probs * target).sum(dim=(0, 2, 3))
     return intersection / (union + eps)
 
 
@@ -135,7 +139,7 @@ def _cerberus_step(
 ) -> tuple[torch.Tensor, dict[str, float]]:
     L_ct = F.cross_entropy(out.cell_type_logits, ct)
     L_cond = F.cross_entropy(out.line_condition_logits, cond)
-    L_seg = segmentation_loss(out.fluorescence_pred, fluo)
+    L_seg = segmentation_loss(out.fluorescence_logits, fluo)
     total = kendall([L_ct, L_cond, L_seg])
     return total, {
         "L_cell_type": L_ct.item(),
@@ -267,20 +271,22 @@ def evaluate(
             out = model(bf)
             sum_l_ct += F.cross_entropy(out.cell_type_logits, ct).item() * bf.size(0)
             sum_l_cond += F.cross_entropy(out.line_condition_logits, cond).item() * bf.size(0)
-            sum_l_vs += segmentation_loss(out.fluorescence_pred, fluo).item() * bf.size(0)
+            sum_l_vs += segmentation_loss(out.fluorescence_logits, fluo).item() * bf.size(0)
             correct_ct += (out.cell_type_logits.argmax(dim=1) == ct).sum().item()
             correct_cond += (out.line_condition_logits.argmax(dim=1) == cond).sum().item()
 
             # Per-channel segmentation metrics: BCE measures per-pixel agreement;
             # soft IoU measures how well the predicted soft mask overlaps the
-            # target fluorescence-as-probability mask.
-            pred = out.fluorescence_pred.float()
+            # target fluorescence-as-probability mask. Apply sigmoid to logits
+            # before computing IoU since IoU expects probabilities in [0, 1].
+            logits = out.fluorescence_logits.float()
+            probs = torch.sigmoid(logits)
             target = fluo.float()
             for c in range(n_fluo):
-                p, t = pred[:, c:c + 1], target[:, c:c + 1]
-                sum_bce_per_ch[c] += F.binary_cross_entropy(p, t).item() * bf.size(0)
-                sum_intersection[c] += (p * t).sum().item()
-                sum_union[c] += (p + t - p * t).sum().item()
+                lc, pc, tc = logits[:, c:c + 1], probs[:, c:c + 1], target[:, c:c + 1]
+                sum_bce_per_ch[c] += F.binary_cross_entropy_with_logits(lc, tc).item() * bf.size(0)
+                sum_intersection[c] += (pc * tc).sum().item()
+                sum_union[c] += (pc + tc - pc * tc).sum().item()
         else:
             logits = model(torch.cat([bf, fluo], dim=1))
             sum_l_cond += F.cross_entropy(logits, cond).item() * bf.size(0)

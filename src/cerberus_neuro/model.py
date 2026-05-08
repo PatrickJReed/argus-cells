@@ -48,7 +48,7 @@ from torchvision.models import ResNet34_Weights, resnet34
 class CerberusOutput:
     cell_type_logits: torch.Tensor       # (N, n_cell_types)
     line_condition_logits: torch.Tensor  # (N, n_line_conditions)
-    fluorescence_pred: torch.Tensor      # (N, n_fluorescence_channels, H, W)
+    fluorescence_logits: torch.Tensor    # (N, n_fluorescence_channels, H, W) — raw logits; apply sigmoid for [0, 1] probability masks
 
 
 def _adapt_conv1(pretrained_weight: torch.Tensor, in_channels: int) -> torch.Tensor:
@@ -121,7 +121,15 @@ class _UpBlock(nn.Module):
 
 
 class VirtualStainingHead(nn.Module):
-    """U-Net-style decoder. Output activated with sigmoid to match [0, 1] targets."""
+    """U-Net-style decoder.
+
+    Returns raw **logits** (no sigmoid). The downstream loss is
+    ``F.binary_cross_entropy_with_logits``, which fuses sigmoid+BCE for
+    numerical stability under AMP autocast (plain ``binary_cross_entropy``
+    is rejected by autocast). For inference / visualization, callers should
+    apply ``torch.sigmoid()`` to the head's output to get [0, 1] probability
+    masks.
+    """
 
     def __init__(self, out_channels: int = 5):
         super().__init__()
@@ -148,7 +156,7 @@ class VirtualStainingHead(nn.Module):
         x = self.up0(x, x0)
         x = F.interpolate(x, size=target_size, mode="bilinear", align_corners=False)
         x = self.up_final(x)
-        return torch.sigmoid(self.final(x))
+        return self.final(x)
 
 
 class ClassifierHead(nn.Module):
@@ -193,7 +201,7 @@ class CerberusModel(nn.Module):
         return CerberusOutput(
             cell_type_logits=self.cell_type_head(x4),
             line_condition_logits=self.line_condition_head(x4),
-            fluorescence_pred=self.fluorescence_head(x0, x1, x2, x3, x4, target_size),
+            fluorescence_logits=self.fluorescence_head(x0, x1, x2, x3, x4, target_size),
         )
 
     def parameter_count(self) -> dict[str, int]:
