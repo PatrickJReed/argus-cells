@@ -79,10 +79,51 @@ def virtual_staining_loss(
     l1_weight: float = 0.85,
     ssim_weight: float = 0.15,
 ) -> torch.Tensor:
-    """``l1_weight * L1 + ssim_weight * (1 - SSIM)`` over (B, C, H, W) in [0, 1]."""
+    """Legacy image-generation loss: ``l1_weight * L1 + ssim_weight * (1 - SSIM)``.
+
+    Kept available for ablation against the segmentation framing but no longer
+    used by ``train()`` / ``evaluate()`` by default. Predicting per-pixel
+    fluorescence intensity tends to collapse the decoder to a constant near
+    the data mean (the local minimum of L1); the segmentation-style BCE loss
+    below avoids this failure mode.
+    """
     l1 = F.l1_loss(pred, target)
     s = ssim(pred, target, data_range=1.0, size_average=True)
     return l1_weight * l1 + ssim_weight * (1.0 - s)
+
+
+def segmentation_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Per-pixel binary cross-entropy treating each fluorescence channel as a
+    soft organelle-membership probability mask.
+
+    Interpretation: ``target[b, c, y, x]`` is the (normalized) fluorescence
+    intensity of organelle ``c`` at pixel ``(y, x)`` in sample ``b``. Higher
+    intensity = higher probability the pixel belongs to that organelle
+    compartment. ``pred`` is the model's per-pixel sigmoid output in [0, 1].
+
+    BCE is preferred over L1 because:
+    - Per-pixel minimum is at ``pred == target`` (no constant-prediction
+      degenerate minimum the way L1 has at the data mean).
+    - Aggressive gradient near 0 and 1 pushes background pixels confidently
+      toward 0 and organelle pixels toward 1.
+    - Sparse-channel imbalance handled naturally (most pixels contribute
+      small loss because they're easy).
+    """
+    return F.binary_cross_entropy(pred, target, reduction="mean")
+
+
+def soft_iou(pred: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    """Soft intersection-over-union per channel.
+
+    Returns a tensor of shape ``(C,)`` with one IoU per fluorescence channel.
+    Soft (no thresholding): treats the [0, 1] predictions and targets as
+    membership scores. ``intersection = sum(pred * target)``,
+    ``union = sum(pred + target - pred * target)``.
+    """
+    # pred, target: (B, C, H, W)
+    intersection = (pred * target).sum(dim=(0, 2, 3))
+    union = (pred + target - pred * target).sum(dim=(0, 2, 3))
+    return intersection / (union + eps)
 
 
 def _cerberus_step(
@@ -94,15 +135,15 @@ def _cerberus_step(
 ) -> tuple[torch.Tensor, dict[str, float]]:
     L_ct = F.cross_entropy(out.cell_type_logits, ct)
     L_cond = F.cross_entropy(out.line_condition_logits, cond)
-    L_vs = virtual_staining_loss(out.fluorescence_pred, fluo)
-    total = kendall([L_ct, L_cond, L_vs])
+    L_seg = segmentation_loss(out.fluorescence_pred, fluo)
+    total = kendall([L_ct, L_cond, L_seg])
     return total, {
         "L_cell_type": L_ct.item(),
         "L_line_condition": L_cond.item(),
-        "L_virtual_staining": L_vs.item(),
+        "L_segmentation": L_seg.item(),
         "log_var_ct": kendall.log_vars[0].item(),
         "log_var_cond": kendall.log_vars[1].item(),
-        "log_var_vs": kendall.log_vars[2].item(),
+        "log_var_seg": kendall.log_vars[2].item(),
     }
 
 
@@ -216,8 +257,9 @@ def evaluate(
     correct_ct = correct_cond = 0
     sum_l_ct = sum_l_cond = sum_l_vs = 0.0
     n_fluo = len(_FLUO_CH_NAMES)
-    sum_l1_per_ch = torch.zeros(n_fluo)
-    sum_ssim_per_ch = torch.zeros(n_fluo)
+    sum_bce_per_ch = torch.zeros(n_fluo)
+    sum_intersection = torch.zeros(n_fluo)
+    sum_union = torch.zeros(n_fluo)
 
     for bf, fluo, ct, cond in loader:
         bf, fluo, ct, cond = (t.to(device) for t in (bf, fluo, ct, cond))
@@ -225,21 +267,20 @@ def evaluate(
             out = model(bf)
             sum_l_ct += F.cross_entropy(out.cell_type_logits, ct).item() * bf.size(0)
             sum_l_cond += F.cross_entropy(out.line_condition_logits, cond).item() * bf.size(0)
-            sum_l_vs += virtual_staining_loss(out.fluorescence_pred, fluo).item() * bf.size(0)
+            sum_l_vs += segmentation_loss(out.fluorescence_pred, fluo).item() * bf.size(0)
             correct_ct += (out.cell_type_logits.argmax(dim=1) == ct).sum().item()
             correct_cond += (out.line_condition_logits.argmax(dim=1) == cond).sum().item()
 
-            # Per-channel virtual-staining quality. L1 is per-pixel mean abs error;
-            # SSIM is computed per channel against the corresponding target.
-            l1_ch = (out.fluorescence_pred - fluo).abs().mean(dim=(0, 2, 3)).cpu()
-            sum_l1_per_ch += l1_ch * bf.size(0)
+            # Per-channel segmentation metrics: BCE measures per-pixel agreement;
+            # soft IoU measures how well the predicted soft mask overlaps the
+            # target fluorescence-as-probability mask.
+            pred = out.fluorescence_pred.float()
+            target = fluo.float()
             for c in range(n_fluo):
-                s = ssim(
-                    out.fluorescence_pred[:, c:c + 1].float(),
-                    fluo[:, c:c + 1].float(),
-                    data_range=1.0, size_average=True,
-                )
-                sum_ssim_per_ch[c] += s.item() * bf.size(0)
+                p, t = pred[:, c:c + 1], target[:, c:c + 1]
+                sum_bce_per_ch[c] += F.binary_cross_entropy(p, t).item() * bf.size(0)
+                sum_intersection[c] += (p * t).sum().item()
+                sum_union[c] += (p + t - p * t).sum().item()
         else:
             logits = model(torch.cat([bf, fluo], dim=1))
             sum_l_cond += F.cross_entropy(logits, cond).item() * bf.size(0)
@@ -255,11 +296,11 @@ def evaluate(
         metrics.update({
             "acc_cell_type": correct_ct / max(n, 1),
             "L_cell_type": sum_l_ct / max(n, 1),
-            "L_virtual_staining": sum_l_vs / max(n, 1),
+            "L_segmentation": sum_l_vs / max(n, 1),
         })
         for c, name in enumerate(_FLUO_CH_NAMES):
-            metrics[f"L1_{name}"] = sum_l1_per_ch[c].item() / max(n, 1)
-            metrics[f"SSIM_{name}"] = sum_ssim_per_ch[c].item() / max(n, 1)
+            metrics[f"BCE_{name}"] = sum_bce_per_ch[c].item() / max(n, 1)
+            metrics[f"IoU_{name}"] = (sum_intersection[c] / (sum_union[c] + 1e-6)).item()
     return metrics
 
 

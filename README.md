@@ -1,6 +1,6 @@
 # cerberus-neuro
 
-> Cerberus-inspired multi-task ResNet34 on the Broad NeuroPainting Cell Painting dataset. Three task heads on a shared image encoder: cell-type classification, virtual staining (brightfield → 5 fluorescence channels), and disease-state classification (control vs 22q11.2 deletion). Encoder initialized from ImageNet weights and fine-tuned end-to-end on NeuroPainting.
+> Cerberus-inspired multi-task ResNet34 on the Broad NeuroPainting Cell Painting dataset. Three task heads on a shared image encoder: cell-type classification, organelle soft-segmentation (5-channel: nuclei / mitochondria / actin+Golgi+membrane / ER / RNA), and disease-state classification (control vs 22q11.2 deletion). Encoder initialized from ImageNet weights and fine-tuned end-to-end on NeuroPainting.
 
 ## What this is
 
@@ -13,7 +13,7 @@ The headline scientific question is operational, not academic: how much of the d
 **`CerberusModel` (the headline model).** Single ResNet34 encoder consuming a 1-channel brightfield crop, feeding three heterogeneous task heads:
 
 1. **Cell-type classification** — 4-way softmax (stem / progen / neuron / astro).
-2. **Virtual staining** — U-Net-style decoder with skip connections at every encoder stride, producing a 5-channel fluorescence prediction (DNA, mitochondria, AGP, ER, RNA) at the input resolution.
+2. **Organelle soft-segmentation** — U-Net-style decoder with skip connections at every encoder stride, producing a 5-channel mask prediction (DNA, mitochondria, AGP, ER, RNA) at the input resolution. Each fluorescence channel is treated as a soft probability mask (high fluorescence → high probability that pixel belongs to that organelle). Trained with per-pixel binary cross-entropy. This is intentionally segmentation rather than image generation: we want the model to identify *where* organelles are from brightfield alone, not to reproduce exact fluorescence intensity values.
 3. **Disease-state classification** — binary (control vs 22q11.2 deletion).
 
 ResNet34 follows the torchvision implementation. The encoder is initialized from ImageNet1K_V1 weights, with `conv1` rebuilt for the model's input-channel count: mean across the 3 pretrained channels for the brightfield (1-channel) Cerberus encoder; tiled and rescaled for the 6-channel baseline encoder. The whole model is fine-tuned end-to-end on NeuroPainting. ~24M parameters total.
@@ -50,9 +50,9 @@ v0 uses a scoped subset (a handful of plates per cell type at 20×) so a full tr
 **Multi-task loss.** Kendall uncertainty weighting (Kendall, Gal, Cipolla 2018): one trainable log-variance scalar per task, joint loss `Σ_i 0.5·exp(-log_var_i)·L_i + 0.5·log_var_i`. Per-task losses:
 
 - Cell type, line condition: `F.cross_entropy`.
-- Virtual staining: `0.85 · L1 + 0.15 · (1 − SSIM)` per channel, summed across the 5 fluorescence outputs. SSIM via `pytorch-msssim`.
+- Organelle segmentation: per-pixel **binary cross-entropy** treating each fluorescence channel as a soft probability mask. Pixel-channel `(b, c, y, x)` is assigned probability `target[b, c, y, x]` of belonging to organelle `c`; the model's sigmoid output predicts that probability.
 
-This avoids hand-tuning the relative scale between per-pixel regression and per-batch classification losses, which differ by an order of magnitude at init and would otherwise let classification dominate the gradient.
+BCE is chosen over per-pixel intensity regression (L1, MSE, SSIM) because the per-pixel minimum of L1 sits at the data mean — a degenerate constant-prediction local minimum the U-Net decoder collapses into during multi-task training. BCE has its minimum at `pred == target` per pixel and aggressive gradient near 0 and 1, pushing background pixels confidently toward 0 and organelle pixels toward 1.
 
 **Optimizer.** AdamW with `lr=3e-4`, `weight_decay=1e-4`, cosine annealing across `n_epochs × steps_per_epoch`. Mixed-precision autocast + GradScaler on CUDA.
 
