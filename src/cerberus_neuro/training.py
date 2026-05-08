@@ -92,25 +92,51 @@ def virtual_staining_loss(
     return l1_weight * l1 + ssim_weight * (1.0 - s)
 
 
-def segmentation_loss(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Per-pixel binary cross-entropy treating each fluorescence channel as a
-    soft organelle-membership probability mask.
+def soft_dice_loss(
+    probs: torch.Tensor, target: torch.Tensor, eps: float = 1e-6,
+) -> torch.Tensor:
+    """1 - soft Dice averaged across channels. Probs in [0, 1], target in [0, 1].
 
-    ``logits`` is the model's raw output (NO sigmoid applied; the head returns
-    logits to allow this fused-with-sigmoid path which is numerically stable
-    under AMP autocast).
-    ``target[b, c, y, x]`` is the normalized fluorescence intensity in [0, 1] —
-    treated as a soft probability that the pixel belongs to organelle ``c``.
-
-    BCE is preferred over L1 because:
-    - Per-pixel minimum is at ``sigmoid(logits) == target`` (no constant-prediction
-      degenerate minimum the way L1 has at the data mean).
-    - Aggressive gradient near 0 and 1 pushes background pixels confidently
-      toward 0 and organelle pixels toward 1.
-    - Sparse-channel imbalance handled naturally (most pixels contribute
-      small loss because they're easy).
+    Dice = 2 * sum(p*t) / (sum(p) + sum(t)). Direct overlap-based supervision —
+    its gradient is non-zero only when the prediction overlaps the target,
+    which prevents the constant-prediction-at-data-mean attractor BCE alone
+    falls into on sparse-foreground segmentation.
     """
-    return F.binary_cross_entropy_with_logits(logits, target, reduction="mean")
+    # probs, target: (B, C, H, W)
+    intersection = (probs * target).sum(dim=(0, 2, 3))
+    p_sum = probs.sum(dim=(0, 2, 3))
+    t_sum = target.sum(dim=(0, 2, 3))
+    dice = (2 * intersection + eps) / (p_sum + t_sum + eps)
+    return 1.0 - dice.mean()
+
+
+def segmentation_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    dice_weight: float = 0.5,
+) -> torch.Tensor:
+    """Combined BCE-with-logits + soft Dice for organelle soft-segmentation.
+
+    Pure BCE on sparse-foreground data has a constant-prediction local minimum
+    at the per-channel mean: predicting ``p ≈ data_mean`` everywhere minimizes
+    the per-pixel BCE without any spatial localization. Empirically, the
+    decoder converges to this attractor and IoU stays flat near
+    ``data_mean / 2`` across epochs.
+
+    Adding a Dice term (overlap-based) supplies the missing spatial supervision.
+    Dice gradient is zero only when intersection is zero, which directly
+    penalizes "predict the mean everywhere" (no overlap with actual organelle
+    locations).
+
+    ``dice_weight=0.0`` falls back to pure BCE-with-logits. Default 0.5 follows
+    the standard medical-imaging segmentation recipe (``0.5 * BCE + 0.5 *
+    (1 - Dice)``).
+    """
+    bce = F.binary_cross_entropy_with_logits(logits, target, reduction="mean")
+    if dice_weight <= 0:
+        return bce
+    dice = soft_dice_loss(torch.sigmoid(logits), target)
+    return (1.0 - dice_weight) * bce + dice_weight * dice
 
 
 def soft_iou(probs: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
