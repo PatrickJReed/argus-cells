@@ -208,6 +208,51 @@ class CerberusModel(nn.Module):
         }
 
 
+class CellTypeOnlyModel(nn.Module):
+    """Sanity-check model: encoder + cell-type head only.
+
+    Used to isolate whether the pretrained encoder can learn cell-type
+    discrimination on this dataset *without* multi-task interference. If
+    cell-type accuracy doesn't reach a healthy value (~0.80+) with this
+    stripped-down model in a few epochs, the issue is in the data pipeline,
+    augmentation, or label assignment, not the multi-task setup.
+    """
+
+    model_kind = "cell_type_only"
+
+    def __init__(self, in_channels: int = 1, n_classes: int = 4, pretrained_encoder: bool = True):
+        super().__init__()
+        self.encoder = ResNet34Encoder(in_channels=in_channels, pretrained=pretrained_encoder)
+        self.head = ClassifierHead(512, n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, _, _, _, x4 = self.encoder(x)
+        return self.head(x4)
+
+
+class VirtualStainingOnlyModel(nn.Module):
+    """Sanity-check model: encoder + U-Net decoder, no classifier heads.
+
+    Used to isolate whether the U-Net decoder can learn virtual staining
+    *without* classifier-head gradient interference. If virtual-staining loss
+    doesn't drop meaningfully below the random-init baseline with this model
+    in a few epochs, the issue is in the decoder architecture or data, not
+    the multi-task balance.
+    """
+
+    model_kind = "vs_only"
+
+    def __init__(self, in_channels: int = 1, out_channels: int = 5, pretrained_encoder: bool = True):
+        super().__init__()
+        self.encoder = ResNet34Encoder(in_channels=in_channels, pretrained=pretrained_encoder)
+        self.decoder = VirtualStainingHead(out_channels)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        target_size = x.shape[-2:]
+        x0, x1, x2, x3, x4 = self.encoder(x)
+        return self.decoder(x0, x1, x2, x3, x4, target_size)
+
+
 class BaselineDiseaseClassifier(nn.Module):
     """All-channel single-task disease classifier (the v0 upper-bound baseline).
 
