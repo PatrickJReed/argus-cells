@@ -70,3 +70,43 @@ def test_donor_well_table_donor_coverage(tiny_manifest):
     # Every donor appears in every cell type.
     assert set(table["line_ID"]) == {"D1", "D2", "D3", "D4", "D5", "D6"}
     assert set(table["cell_type"]) == {"stem", "progen", "neuron", "astro"}
+
+
+import math
+
+from cerberus_neuro.audit import imbalance_metric
+
+
+def test_imbalance_metric_perfect_balance(tiny_manifest):
+    """Equal wells per donor → CV = 0 for every (cell_type, line_condition)."""
+    table = donor_well_table(tiny_manifest)
+    imbalance = imbalance_metric(table)
+    # 4 cell types x 2 conditions = 8 groups.
+    assert len(imbalance) == 8
+    for key, val in imbalance.items():
+        assert val["cv"] == 0
+        assert val["n_donors"] == 3
+
+
+def test_imbalance_metric_imbalanced_high_cv():
+    """One donor has 10 wells, others have 1 — CV should be > 1.0."""
+    table = pd.DataFrame(
+        [
+            {"cell_type": "stem", "line_condition": "control", "line_ID": "D1", "n_wells": 10},
+            {"cell_type": "stem", "line_condition": "control", "line_ID": "D2", "n_wells": 1},
+            {"cell_type": "stem", "line_condition": "control", "line_ID": "D3", "n_wells": 1},
+        ]
+    )
+    imbalance = imbalance_metric(table)
+    assert imbalance[("stem", "control")]["cv"] > 1.0
+    assert imbalance[("stem", "control")]["n_donors"] == 3
+
+
+def test_imbalance_metric_single_donor_returns_nan():
+    """Single donor in a group: CV is undefined → NaN."""
+    table = pd.DataFrame(
+        [{"cell_type": "stem", "line_condition": "control", "line_ID": "D1", "n_wells": 5}]
+    )
+    imbalance = imbalance_metric(table)
+    assert math.isnan(imbalance[("stem", "control")]["cv"])
+    assert imbalance[("stem", "control")]["n_donors"] == 1

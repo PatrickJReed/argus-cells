@@ -6,6 +6,8 @@ dependencies — these utilities run on Colab Free.
 """
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 
@@ -71,3 +73,37 @@ def donor_well_table(manifest: pd.DataFrame) -> pd.DataFrame:
         }
     )
     return counts.sort_values(["cell_type", "line_condition", "line_ID"]).reset_index(drop=True)
+
+
+def imbalance_metric(table: pd.DataFrame) -> dict[tuple[str, str], dict[str, float]]:
+    """Donor-balance coefficient of variation per (cell_type, line_condition).
+
+    For each (cell_type, line_condition) group, computes the coefficient of
+    variation (std/mean) of per-donor ``n_wells``. CV=0 means perfectly
+    balanced donor representation; higher CV means one or two donors
+    dominate the group.
+
+    Single-donor groups return ``cv=NaN`` (CV is undefined with N=1).
+
+    Parameters
+    ----------
+    table
+        Output of :func:`donor_well_table`. Must have columns
+        ``cell_type``, ``line_condition``, ``line_ID``, ``n_wells``.
+
+    Returns
+    -------
+    Dict keyed by ``(cell_type, line_condition)`` tuples, with values
+    ``{"cv": float, "n_donors": int}``.
+    """
+    out: dict[tuple[str, str], dict[str, float]] = {}
+    for (cell_type, condition), group in table.groupby(["cell_type", "line_condition"]):
+        wells = group["n_wells"].to_numpy()
+        n_donors = int(len(wells))
+        if n_donors <= 1:
+            cv = math.nan
+        else:
+            mean = float(wells.mean())
+            cv = float(wells.std() / mean) if mean > 0 else math.nan
+        out[(cell_type, condition)] = {"cv": cv, "n_donors": n_donors}
+    return out
