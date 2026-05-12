@@ -105,7 +105,7 @@ class AttributionResult:
 
 This uniform interface lets `analysis/` modules treat all four methods identically. A method that does not produce per-pixel saliency (e.g., channel ablation) returns `saliency=None` and populates `channel_scores` only.
 
-**Donor probe.** A 1-hidden-layer MLP fit on frozen encoder embeddings to predict donor identity. Reported metrics: top-1 donor classification accuracy, top-1 disease classification accuracy on the same probe, and ratio (donor / disease) accuracy as a confound-strength indicator. Probe is fit on the val split donor subset to avoid leakage from training.
+**Donor probe.** A linear classifier (or 1-hidden-layer MLP) fit on frozen encoder embeddings to predict donor identity. Reported metrics: (a) top-1 donor classification accuracy and (b) top-1 disease classification accuracy from a parallel probe on the same embeddings, and (c) the donor / disease accuracy ratio as a confound-strength indicator. Interpretation: ratio ≪ 1 means the encoder retained much less donor information than disease information (good, no confound); ratio ≈ 1 or higher means donor information is at least as linearly extractable as disease information (red flag — the disease classifier may be partly leveraging donor identity). Probe is fit on train-split embeddings and evaluated on val-split embeddings, using the same well-level split as the disease classifier.
 
 **Cell-type stratification.** Every attribution method is run per cell type. Production output is a per-cell-type × per-channel matrix: how much does each channel matter for disease classification within each cell type? This is the core finding-shaped output of the project.
 
