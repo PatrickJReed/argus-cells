@@ -347,8 +347,9 @@ class NeuroPaintingDataset(IterableDataset):
     augment: bool = True
     shuffle: bool = True
     seed: int = 0
+    yield_donor: bool = False
 
-    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor, int, int]]:
+    def __iter__(self) -> Iterator[tuple]:
         worker = torch.utils.data.get_worker_info()
         worker_id = worker.id if worker else 0
         n_workers = worker.num_workers if worker else 1
@@ -385,6 +386,7 @@ class NeuroPaintingDataset(IterableDataset):
             channels = channels.astype(np.float32) / 65535.0
             ct = CELL_TYPE_TO_IDX[row["Metadata_cell_type"]]
             cond = LINE_CONDITION_TO_IDX[row["Metadata_line_condition"]]
+            donor = int(row["Metadata_line_ID"])
             _, h, w = channels.shape
 
             selected = tile_top_cells(
@@ -398,9 +400,15 @@ class NeuroPaintingDataset(IterableDataset):
                 crop = channels[:, y:y + self.crop_size, x:x + self.crop_size]
                 if self.augment:
                     crop = apply_dihedral(crop, rng)
-                yield (
+                sample = (
                     torch.from_numpy(crop[:1].copy()),
                     torch.from_numpy(crop[1:].copy()),
                     ct,
                     cond,
                 )
+                # When yield_donor is set, append the crop's true donor ID so the
+                # donor probe can pair each embedding with its line. Default off
+                # keeps the 4-tuple every other consumer (training, eval) expects.
+                if self.yield_donor:
+                    sample = sample + (donor,)
+                yield sample
