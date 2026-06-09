@@ -35,29 +35,35 @@ import torch.nn.functional as F  # noqa: N812 — conventional PyTorch alias
 class ConvTokenizer(nn.Module):
     """Conv stack mapping an image to a token sequence.
 
-    Two blocks of (Conv2d 3x3 s1 p1 -> ReLU -> MaxPool2d 3x3 s2 p1) take
-    ``[B, in_channels, H, W]`` to ``[B, embed_dim, h', w']`` (each block halves
-    the spatial resolution). The spatial grid is then flattened to a token
-    sequence ``[B, h'*w', embed_dim]``.
+    ``n_conv_layers`` blocks of (Conv2d 3x3 s1 p1 -> ReLU -> MaxPool2d 3x3 s2 p1)
+    take ``[B, in_channels, H, W]`` to ``[B, embed_dim, h', w']``; each block
+    halves the spatial resolution, so the grid is downsampled by
+    ``2 ** n_conv_layers`` overall. The default of 4 (16x downsampling) keeps the
+    256x256 production crops at a 16x16 = 256-token sequence; transformer
+    attention is O(T^2), so the token count must stay modest. The spatial grid is
+    then flattened to a token sequence ``[B, h'*w', embed_dim]``.
     """
 
-    def __init__(self, in_channels: int, embed_dim: int):
+    def __init__(self, in_channels: int, embed_dim: int, n_conv_layers: int = 4):
         super().__init__()
         hidden = embed_dim // 2
-        self.block1 = nn.Sequential(
-            nn.Conv2d(in_channels, hidden, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
-        )
-        self.block2 = nn.Sequential(
-            nn.Conv2d(hidden, embed_dim, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+        # in -> hidden for every block but the last, hidden -> embed_dim on the
+        # last. Holding the high-resolution early blocks at `hidden` (not the
+        # full embed_dim) keeps activation memory down.
+        chans = [in_channels] + [hidden] * (n_conv_layers - 1) + [embed_dim]
+        self.blocks = nn.Sequential(
+            *(
+                nn.Sequential(
+                    nn.Conv2d(chans[i], chans[i + 1], kernel_size=3, stride=1, padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
+                )
+                for i in range(n_conv_layers)
+            )
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.block1(x)
-        x = self.block2(x)  # [B, embed_dim, h', w']
+        x = self.blocks(x)  # [B, embed_dim, h', w']
         return x.flatten(2).transpose(1, 2)  # [B, T, embed_dim]
 
 
@@ -127,6 +133,7 @@ class ArgusCCT(nn.Module):
         n_classes: int = 2,
         img_size: int = 64,
         embed_dim: int = 256,
+        n_conv_layers: int = 4,
         num_layers: int = 7,
         num_heads: int = 4,
         mlp_ratio: float = 2.0,
@@ -137,7 +144,7 @@ class ArgusCCT(nn.Module):
         self.num_layers = num_layers
         self.num_heads = num_heads
 
-        self.tokenizer = ConvTokenizer(in_channels, embed_dim)
+        self.tokenizer = ConvTokenizer(in_channels, embed_dim, n_conv_layers)
 
         # Number of tokens: run a dummy image through the tokenizer once.
         with torch.no_grad():
