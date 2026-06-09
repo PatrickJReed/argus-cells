@@ -356,11 +356,16 @@ def train(
     # was instantiated before training.py was reimported) don't break.
     kind = getattr(model, "model_kind", None)
     is_cerberus = kind == "cerberus"
-    is_baseline = kind == "baseline"
+    # "baseline" (ResNet34) and "argus_cct" (Compact Convolutional Transformer)
+    # are both single-head 6-channel disease classifiers: they share the same
+    # training/eval path (cross-entropy on the disease logits over the
+    # concatenated 6-channel input, uniform or discriminative LR depending on
+    # whether the model exposes an `encoder` attribute).
+    is_baseline = kind in ("baseline", "argus_cct")
     if not (is_cerberus or is_baseline):
         raise ValueError(
             f"Unsupported model type: {type(model).__name__} (model_kind={kind!r}). "
-            "Expected CerberusModel or BaselineDiseaseClassifier."
+            "Expected CerberusModel, BaselineDiseaseClassifier, or ArgusCCT."
         )
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
