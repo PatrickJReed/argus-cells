@@ -1,98 +1,110 @@
-# cerberus-neuro — project context
+# argus-cells — project context
 
-The strategic background behind this project: why it exists, why it's a public reproduction of internal BMS work, dataset and architecture rationale, and what the short- and long-term goals are. Companion to `README.md` (public-facing technical framing) and `CLAUDE.md` (working context for Claude Code sessions).
+The strategic background behind this project: why it exists, how it evolved from a BMS-lineage reproduction into a focused interpretability study, the dataset and architecture rationale, and the short- and long-term goals. Companion to `README.md` (public-facing technical framing) and `CLAUDE.md` (working context for Claude Code sessions).
+
+The repo and Python package are still named `cerberus_neuro`; the rename to `argus-cells` lands at Phase 2. See [The reframe](#the-reframe-cerberus-neuro--argus-cells) below and `docs/superpowers/specs/2026-05-12-argus-cells-design.md` for the full design.
 
 ## Why this project exists
 
-This project is part of a deliberate portfolio strategy by **Patrick J. Reed, Ph.D.** (computational biologist, 15+ years; most recently Principal Scientist at Bristol Myers Squibb). The project closes a specific portfolio gap: **prior work that lives only inside a former employer cannot be cited or shown to recruiters**.
+This project is part of a deliberate portfolio strategy by **Patrick J. Reed, Ph.D.** (computational biologist, 15+ years; most recently Principal Scientist at Bristol Myers Squibb). It closes a specific portfolio gap: **prior work that lives only inside a former employer cannot be cited or shown to recruiters.**
 
-At BMS in 2025, Patrick built a multi-task foundation-model proof-of-concept for the Neurobot high-throughput screening platform: a Cerberus-inspired ResNet34 with shared encoder and three task heads (cell-type classification, virtual staining, disease-state classification) trained on the publicly available Broad NeuroPainting dataset. The internal version was completed as a POC but not transferred to BMS internal data or productionized into Neurobot screening workflows before the April 2026 layoff. As a result, Patrick describes the work in interviews and on resumes but cannot point recruiters to a citable artifact.
+At BMS in 2025, Patrick built a multi-task foundation-model proof-of-concept for the Neurobot high-throughput screening platform, a Cerberus-inspired ResNet34 with a shared encoder and three task heads (cell-type classification, virtual staining, disease-state classification) trained on the public Broad NeuroPainting dataset. The internal version was completed as a POC but not transferred to BMS internal data or productionized into Neurobot workflows before the April 2026 layoff. Patrick can describe the work in interviews but cannot point recruiters to a citable artifact.
 
-`cerberus-neuro` is a **clean public reproduction** built from scratch on the same public dataset, using the same architectural pattern. No BMS internal data, no internal hyperparameters, no internal infrastructure — just the architecture, the public NeuroPainting data, and a public training run. The artifact is the version anyone can run, cite, fork, or extend.
+This repo is the public, citable answer. No BMS internal data, no internal hyperparameters, no internal infrastructure: the public NeuroPainting data, an architecture in the same family, and public training runs that anyone can run, cite, fork, or extend. The decision to rebuild publicly was made during the 2026-05-05 portfolio refresh, alongside the sibling `cellduet` project (multimodal perturbation concordance).
 
-The decision to rebuild publicly was made during the 2026-05-05 portfolio refresh session, alongside the related but distinct `cellduet` project (multimodal perturbation concordance).
+## The reframe: cerberus-neuro → argus-cells
+
+The project started as `cerberus-neuro`, a faithful three-headed reproduction of the BMS POC. During the build, two task-specific models shipped and validated the data pipeline and training infrastructure end-to-end on real biology: a cell-type classifier (val acc 0.9905) and a 6-channel disease classifier (val acc 0.7311). With the infrastructure proven, the framing was reconsidered on 2026-05-12.
+
+The conclusion: a single honest disease classifier plus a rigorous interpretability harness is a stronger, more defensible artifact than three heads competing for encoder capacity. The interesting scientific question on this dataset is not "can a model separate 22q11.2 deletion from control" (it can) but "what is the model using to do it": which Cell Painting channels carry the signal, whether that differs by cell type, and whether the model is quietly riding donor identity rather than disease biology. That question doubles as a methods spine (a careful comparison of attribution methods across two architectures) and a biology payoff, serving both ML-methods and biology readers from one artifact.
+
+So the multi-task reproduction framing was retired. The project is now `argus-cells`: the many-eyed watcher, a 6-channel model attending to morphology and then made to show where it looked.
 
 ## Why these design choices
 
-### Why a public reproduction (not new research)
+### Why disease classification plus interpretability (not a faithful reproduction)
 
-Two reasons:
-
-1. **The internal version was already done on public data.** The Broad NeuroPainting dataset is publicly available on the Cell Painting Gallery. The BMS POC trained on this public data, so a public rebuild has no IP or cleanroom constraints.
-2. **Faithful reproduction has more credentialing value than novel architecture exploration for this specific gap.** The point is to demonstrate *what Patrick built at BMS*, in a form anyone can run and verify. Architecture variants are v1 stretch, not v0.
+- **The reproduction was a means, not the end.** The portfolio gap is "demonstrate Patrick can build and ship vision models on bio imaging, and reason rigorously about what they learn." A polished interpretability study demonstrates more of that than a literal re-implementation of an internal model.
+- **Honesty is easier and stronger.** A reproduction invites the question "how close to the internal numbers." An open-ended interpretability study makes no parity claim; it reports whatever the data says, framed as "the model says X" rather than "we proved X."
+- **Interpretability is the differentiated skill.** Many candidates can train a classifier. Fewer can build a reusable attribution harness, stratify it by cell type, and explicitly test a donor confound before making a biological claim.
 
 ### Why this dataset (Broad NeuroPainting)
 
-- **Public**: Available on the Cell Painting Gallery on AWS Open Data; permissive licensing for non-commercial use.
-- **Disease-relevant**: 22q11.2 deletion is a well-characterized neuropsychiatric risk factor; iPSC + Cell Painting framing applies broadly to neurodegenerative and neurodevelopmental disorders.
-- **Multi-modal in the right way**: Cell Painting fluorescence channels + brightfield input enable the virtual-staining task naturally. Not all imaging datasets support that.
-- **Manageable scale**: 44 lines × 4 cell types × Cell Painting plates × multiple fields. Large enough to be non-trivial, small enough to fit on Colab Free with subset scoping for v0.
-- **Cited and traceable**: Tegtmeyer et al., *Nat Commun* 2025 ([10.1038/s41467-025-61547-x](https://doi.org/10.1038/s41467-025-61547-x)) is the canonical reference; readers can locate the project in the published literature.
+- **Public.** On the Cell Painting Gallery (AWS Open Data); permissive licensing for non-commercial use, no credentials required.
+- **Disease-relevant.** 22q11.2 deletion is a well-characterized neuropsychiatric risk factor; the iPSC plus Cell Painting framing generalizes to neurodevelopmental and neurodegenerative work.
+- **Multi-channel in the right way.** Five fluorescence channels plus brightfield give the per-channel ablation its meaning: a per-channel importance question only exists because the channels are biologically distinct (DNA, mitochondria, AGP, ER, RNA).
+- **Well-structured for a confound check.** 48 cell lines, 24 per condition, in disjoint donor ranges (control 1-24, deletion 25-48). Donor identity and disease label are independent given cell type, so the donor probe is well-formed.
+- **Manageable scale.** 48 lines across 4 cell types, large enough to be non-trivial, small enough to fit Colab Free with subset scoping.
+- **Cited and traceable.** Tegtmeyer et al., *Nat Commun* 2025 ([10.1038/s41467-025-61547-x](https://doi.org/10.1038/s41467-025-61547-x)) is the canonical reference.
 
-### Why this architecture (Cerberus-inspired ResNet34 + 3 heads)
+### Why two paired classifiers (Argus-RN34 + Argus-CCT)
 
-- **Faithful to the BMS POC**: this is the architectural choice Patrick actually shipped internally. The point of a public reproduction is to demonstrate that work, not invent a new architecture.
-- **Three-headed shared-encoder pattern** is well-supported in the multi-task vision literature (Caruana 1997 onward; the Cerberus framing comes from various ML-systems papers).
-- **ResNet34 is small enough to train on a T4 16GB**, large enough to be non-toy. Avoids the "I trained a 200M-parameter model on a tiny dataset" anti-pattern.
-- **Three tasks span a useful gradient**: classification (cell type), regression (virtual staining), binary classification (disease state). Single architecture, three task types, gives reviewers a complete multi-task vision artifact.
+- **Two architectures, chosen for complementary attribution surfaces, not for an accuracy tournament.** ResNet34 exposes GradCAM on its last conv stage; the Compact Convolutional Transformer exposes attention rollout on its encoder. Where two credible methods on two architectures agree, a biological claim is stronger; where they disagree, that disagreement is itself a finding worth reporting.
+- **Argus-CCT echoes Patrick's actual BMS work.** The TDP43/STMN2 screening models he built at BMS (2024-2025) used a Compact Convolutional Transformer in the same Cell Painting / iPSC-neuron domain. Choosing CCT as the second backbone is an authentic extension of shipped prior work, not an arbitrary architecture pick.
+- **ResNet34 and CCT are both small enough for cheap compute.** ResNet34 fine-tunes on an L4; CCT-from-scratch converges in 1-2 A100 hours. Neither is the "200M-parameter model on a tiny dataset" anti-pattern.
+- **Pretrained vs from-scratch is a deliberate contrast.** Argus-RN34 starts from ImageNet1K_V1; Argus-CCT trains from scratch. The pair also probes whether initialization changes what the model attends to.
 
 ### Why Colab + Docker (not pure cloud or pure local)
 
-This is documented in `docs/SETUP.md`. Short version:
-- Colab handles iteration speed and Free-tier compute for v0.
-- Docker captures the env so the same code runs locally, on Lambda/RunPod for full-scale training, or in production-style deployment.
-- Multi-platform Docker portability is itself a credentialing signal that's missing from Patrick's portfolio; baked in from day 1 is cheap, retrofitted later is expensive.
-- **No Colab-Pro or paid-cloud commitment in v0**. Pro is available as a fallback if Free becomes a bottleneck; full-scale training runs on a rented A100 ($2-15 per converged run) only when v1 is in scope.
+Documented in `docs/SETUP.md`. Short version:
+- Colab handles iteration speed and Free-tier compute for the harness and the pretrained-model training.
+- Docker captures the environment so the same code runs locally, on Lambda/RunPod for the CCT-from-scratch A100 run, or in a production-style deployment.
+- Multi-platform Docker portability is itself a credentialing signal; baked in from day one is cheap, retrofitted later is expensive.
+- No paid-cloud commitment until Phase 2: one A100 session for CCT-from-scratch ($2-15), not recurring spend.
 
 ## Strategic positioning
 
-The artifact is built to support applications to:
+The artifact supports applications to:
 
-- **Recursion** — image-based CRISPR perturbation and Cell Painting are core to their platform. cerberus-neuro is on-domain.
-- **Insitro** — cellular phenotyping + ML; multi-task vision on iPSC imaging maps directly.
-- **Iambic Therapeutics** — generative + multi-task vision in drug discovery.
-- **Anthropic Applied AI Engineer Life Sciences** — pairs with cellduet to demonstrate breadth: Patrick can ship multimodal *and* multi-task biological vision artifacts. The HHMI / Allen Institute partner work specifically values applied imaging-AI.
-- **Pharma comp-bio roles** with Cell Painting / phenotypic screening (BMS, Lilly, Pfizer, AbbVie). Patrick's BMS work gets a citable public version.
-- **Generally**: any role asking "show me your prior work on multi-task vision in biology" — the cerberus-neuro repo + writeup is the answer.
+- **Recursion.** Image-based perturbation and Cell Painting are core to their platform; argus-cells is on-domain, and the interpretability framing matches how a screening company reasons about phenotypic hits.
+- **Insitro.** Cellular phenotyping plus ML on iPSC imaging maps directly.
+- **Iambic Therapeutics.** Multi-task and attribution-aware vision in drug discovery.
+- **Anthropic Applied AI Engineer, Life Sciences.** Pairs with `cellduet` to show breadth: a multimodal embedding analysis and a trained-from-data interpretability study. The methods-spine framing (rigorous attribution comparison, explicit confound test) is the part that reads as applied-AI rigor rather than just model training.
+- **Pharma comp-bio roles** with Cell Painting / phenotypic screening (BMS, Lilly, Pfizer, AbbVie). Patrick's BMS imaging-AI work gets a citable public companion.
+- **Generally**: any role asking "show me your prior work on vision in biology, and how you reason about what the model learned."
 
 ## Connection to other portfolio work
 
-- **`~/Sandbox/cellduet/`** — sibling project. cellduet analyzes pre-computed embeddings across modalities (transcriptomic + morphological); cerberus-neuro trains a multi-task model on the morphological side. The two together demonstrate Patrick can both (a) train domain-specific models and (b) reason analytically across pre-trained embedding spaces.
-- **`docs/NeuroPainting_MultiTask_Model_Dossier.md`** in NewRoleEfforts — comprehensive reference on the BMS internal version, including dataset details, Cerberus inspiration, connections to Tegtmeyer et al.
-- **`PatrickReed_Accomplishments_Bank.md`** "Neurobot Multi-Task Foundation Model: Proof-of-Concept (BMS, 2025)" entry — internal version's accomplishment record. Patrick should reference cerberus-neuro from that entry once v0 ships.
-- **TDP43/STMN2 CCT screening model** (BMS, 2024-2025) — different architecture (Compact Convolutional Transformer), same Cell Painting / iPSC neuron domain. Both demonstrate Patrick can ship vision models in HTS contexts.
+- **`~/Sandbox/cellduet/`** — sibling project. cellduet reasons analytically across pre-computed multimodal embeddings (transcriptomic + morphological); argus-cells trains vision models on the morphological side and dissects them. Together they show Patrick can both train domain-specific models and reason across pre-trained embedding spaces.
+- **TDP43/STMN2 CCT screening model (BMS, 2024-2025)** — the direct lineage for Argus-CCT. Same Cell Painting / iPSC-neuron domain, same Compact Convolutional Transformer family.
+- **`docs/NeuroPainting_MultiTask_Model_Dossier.md`** in NewRoleEfforts — reference on the BMS internal multi-task version, dataset details, and connections to Tegtmeyer et al.
+- **`PatrickReed_Accomplishments_Bank.md`** "Neurobot Multi-Task Foundation Model: Proof-of-Concept (BMS, 2025)" entry — the internal version's record. Patrick should reference argus-cells from that entry once Phase 4 ships.
 
 ## Honestly acknowledged gaps
 
-These are intentionally surfaced, not buried:
+Surfaced intentionally, not buried:
 
-- **This is a reproduction, not novel research.** The README and CLAUDE.md say so. The artifact's value is "Patrick can build and ship multi-task vision models on bio imaging data," not "Patrick discovered something new."
-- **Performance numbers will not match the BMS internal version**, because the internal version had access to BMS infrastructure, internal hyperparameter tuning, and internal data preparation tooling. Reproduction targets reasonable public-data performance, not parity. This is named in the writeup.
-- **The Broad NeuroPainting dataset is non-commercial-licensed for some uses**; check licensing before any commercial repurposing of the trained model.
-- **22q11.2 deletion is one disease state**; the model does not generalize to other disease conditions without retraining. Generalization to other conditions is a v2+ direction, not a v0 claim.
-- **Patrick is not credited as an author on the upstream Tegtmeyer et al. publication.** This is a reproduction of a model architecture *applied to* their public data, not a re-implementation of their methodology.
+- **This is applied work on public data, not novel architecture research.** The value is "Patrick can build a classifier, then rigorously interrogate it," not "Patrick invented a new model." Both architectures are off-the-shelf families.
+- **The disease classifier may carry a donor confound.** With 24 donor lines per condition, the model could in principle separate conditions partly by donor identity. The project does not assume the confound away; the donor probe explicitly measures it, and a high donor/disease accuracy ratio would be reported as a limitation rather than hidden.
+- **Attribution methods can disagree, and none is ground truth.** GradCAM, attention rollout, Integrated Gradients, and channel ablation can attend to different features. Single-method claims are treated with caution; cross-architecture and cross-method agreement is the evidence bar.
+- **CCT-from-scratch convergence is untested at this data scale.** It may need more crops or epochs than budgeted. Mitigation: Argus-RN34 trains in parallel as the fallback; if CCT fails, the harness still runs on one architecture and the project still ships.
+- **22q11.2 deletion is one disease state.** The model does not generalize to other conditions without retraining.
+- **Patrick is not an author on Tegtmeyer et al.** This applies an architecture and an interpretability harness to their public data; it is not a re-implementation of their methodology, and it makes no claim on their findings.
 
-## Short-term goals (v0, ~6–8 weeks evening work)
+## Short-term goals (argus-cells v0, ~7 weeks evening work)
 
-1. Establish data pipeline against the Cell Painting Gallery on AWS S3.
-2. Implement Cerberus-inspired ResNet34 + 3 task heads from scratch.
-3. Multi-task training loop with checkpointing, resumability, and per-task loss weighting.
-4. Scoped training run (subset of plates, reduced resolution) on Colab Free demonstrating convergence on all three tasks.
-5. Evaluation: cell-type accuracy, per-channel virtual-staining MSE/SSIM, disease-state accuracy + AUC.
-6. Repo polish: clean notebooks, figures, paper-style writeup, HF model checkpoint pushed.
+Per the design spec's phased plan:
+
+1. **Phase 0.** Donor + dataset audit; hard gate before training. (Done: PROCEED, 24 donors/condition.)
+2. **Phase 1.** Build and validate the interpretability harness against the existing 0.73 baseline. (Code complete and unit-tested; Colab run and results doc pending.)
+3. **Phase 2.** Train Argus-RN34 and Argus-CCT on a scaled crop budget; initialize the `argus-cells` repo and package.
+4. **Phase 3.** Full analysis: per-cell-type by per-channel ablation tables, cross-architecture saliency agreement, donor-probe confound result, honest biology writeup.
+5. **Phase 4.** Polish: `argus-cells` on GitHub and PyPI, README narrative, HF model cards.
 
 ## Long-term goals (v1+, opportunistic)
 
-- **Full-scale training run** on rented A100 (Lambda / RunPod / Paperspace) — full resolution, all plates, full convergence. Push to HF as `patrickjreed/cerberus-neuro-v1`.
-- **Architecture variants**: ViT-family backbone, EfficientNet swaps, learned vs fixed task-loss weights.
-- **HF Spaces Gradio demo**: upload a brightfield image, predict virtual stains + cell type live.
+- **Full-scale training run** on rented A100 (full resolution, all plates, full convergence). Push to HF as `patrickjreed/argus-*-v1`.
+- **Leave-one-donor-out cross-validation** if the Phase 1/3 donor probe surfaces a real confound that needs full quantification.
+- **Architecture or attribution extensions** beyond the two specified models, only if a phase surfaces a specific reason.
+- **HF Spaces demo**: upload a Cell Painting crop, get the disease call plus its per-channel attribution live.
 - **Possible preprint or workshop submission** if v1 quality justifies it.
 
 ## Source documents
 
+- `docs/superpowers/specs/2026-05-12-argus-cells-design.md` — the approved argus-cells design spec (the authoritative "what and why")
 - `~/Sandbox/cellduet/docs/CONTEXT.md` — sibling project's strategic background; shares the broader portfolio rationale
 - `~/NewRoleEfforts/docs/portfolio_project_brainstorm.md` — overall portfolio strategy and project rankings
-- `~/NewRoleEfforts/docs/NeuroPainting_MultiTask_Model_Dossier.md` — comprehensive reference on the BMS internal POC
+- `~/NewRoleEfforts/docs/NeuroPainting_MultiTask_Model_Dossier.md` — reference on the BMS internal POC
 - `~/NewRoleEfforts/PatrickReed_Master_Resume.md` — gold-standard claims source for any prose about Patrick's prior work
 - `~/NewRoleEfforts/PatrickReed_Accomplishments_Bank.md` — extended detail on BMS, Ionis, DNAtrix, Salk projects
 - `~/NewRoleEfforts/PatrickReed_Claims_Audit.md` — claims flagged for revision; consult before writing about prior work

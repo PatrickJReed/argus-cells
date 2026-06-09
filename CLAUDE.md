@@ -2,7 +2,7 @@
 
 This file seeds the next Claude Code session with project context that isn't obvious from the code or README alone. Read this before doing meaningful work.
 
-For the **strategic background** behind the project (why it exists, role-class positioning, connection to other portfolio projects, short- and long-term goals, honestly-acknowledged gaps), read `docs/CONTEXT.md`. This file (`CLAUDE.md`) is for *how to work in the codebase*; `docs/CONTEXT.md` is for *why the codebase exists*. **Note:** `docs/CONTEXT.md` still describes the retired cerberus three-headed framing and is pending a reframe update; treat its "why" content as historical until then.
+For the **strategic background** behind the project (why it exists, the cerberus→argus reframe, role-class positioning, connection to other portfolio projects, short- and long-term goals, honestly-acknowledged gaps), read `docs/CONTEXT.md`. This file (`CLAUDE.md`) is for *how to work in the codebase*; `docs/CONTEXT.md` is for *why the codebase exists*.
 
 ## What this repo is
 
@@ -143,4 +143,4 @@ The CLAUDE.md you are reading was just refreshed from the stale "scaffold only" 
 
 **Phase 1 (in flight):** the interpretability harness is **code-complete and unit-tested** (33 tests passing) in `src/cerberus_neuro/{attribution,probes,analysis}/`, and `notebooks/04_phase_1_harness.ipynb` is fully scaffolded (14 cells, outputs cleared). Remaining Phase 1 work (plan Tasks 15-17): **(1)** run the notebook on Colab against the 0.73 checkpoint and pull the executed copy back; **(2)** write the Phase 1 interpretability results doc with the Phase 2 gate decision; **(3)** announce. Attention rollout and cross-architecture agreement are deliberately deferred to Phase 2 (they need Argus-CCT).
 
-**Known debt:** `docs/CONTEXT.md` still reflects the retired cerberus three-headed framing (pending reframe). Repo carries ~100 cosmetic ruff lint findings (import sorting, unused imports, notebook E402); no functional bugs. Package/repo rename to `argus-cells` is intentionally deferred to Phase 2.
+**Known debt:** repo carries ~100 cosmetic ruff lint findings (import sorting, unused imports, notebook E402); no functional bugs. Package/repo rename to `argus-cells` is intentionally deferred to Phase 2.
