@@ -16,8 +16,10 @@ responsibility, not something this function can check.
 
 from __future__ import annotations
 
+import warnings
+
 import torch
-from scipy.stats import spearmanr
+from scipy.stats import ConstantInputWarning, spearmanr
 
 from cerberus_neuro.attribution.base import AttributionResult
 
@@ -74,12 +76,14 @@ def saliency_agreement(result_a: AttributionResult, result_b: AttributionResult)
     flat_b = saliency_b.reshape(batch, -1).detach().cpu().numpy()
 
     per_sample = torch.empty(batch, dtype=torch.float)
-    for b in range(batch):
-        # spearmanr returns NaN when either input has zero variance (constant
-        # map): undefined ranks. We keep the NaN per-sample and drop it from the
-        # mean below.
-        rho, _ = spearmanr(flat_a[b], flat_b[b])
-        per_sample[b] = float(rho)
+    # spearmanr returns NaN when either input has zero variance (a constant map):
+    # ranks are undefined. We keep that NaN per-sample and drop it from the mean
+    # below; scipy's ConstantInputWarning for it is non-actionable, so silence it.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=ConstantInputWarning)
+        for b in range(batch):
+            rho, _ = spearmanr(flat_a[b], flat_b[b])
+            per_sample[b] = float(rho)
 
     mean = float(torch.nanmean(per_sample).item())
     return {"per_sample": per_sample, "mean": mean}
