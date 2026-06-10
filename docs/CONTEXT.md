@@ -2,7 +2,7 @@
 
 The strategic background behind this project: why it exists, how it evolved from a BMS-lineage reproduction into a focused interpretability study, the dataset and architecture rationale, and the short- and long-term goals. Companion to `README.md` (public-facing technical framing) and `CLAUDE.md` (working context for Claude Code sessions).
 
-The repo and Python package are still named `cerberus_neuro`; the rename to `argus-cells` lands at Phase 2. See [The reframe](#the-reframe-cerberus-neuro--argus-cells) below and `docs/superpowers/specs/2026-05-12-argus-cells-design.md` for the full design.
+The repo and Python package are now named `argus-cells` / `argus_cells` (migrated in Phase 2 from `cerberus-neuro` / `cerberus_neuro`). See [The reframe](#the-reframe-cerberus-neuro--argus-cells) below and `docs/superpowers/specs/2026-05-12-argus-cells-design.md` for the full design.
 
 ## Why this project exists
 

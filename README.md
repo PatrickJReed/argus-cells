@@ -8,7 +8,7 @@
 
 The name is the many-eyed watcher Argus: a 6-channel input model attending to cellular morphology, then made to show where it looked.
 
-The project began as `cerberus-neuro`, a three-headed multi-task reproduction of a Bristol Myers Squibb proof-of-concept. That framing was retired in favor of the sharper interpretability question. See [Project lineage](#project-lineage) for why the repo and package are still named `cerberus_neuro` for now.
+The project began as `cerberus-neuro`, a three-headed multi-task reproduction of a Bristol Myers Squibb proof-of-concept. That framing was retired in favor of the sharper interpretability question, and the repo and package were renamed to `argus-cells` / `argus_cells`. See [Project lineage](#project-lineage) for the full history.
 
 ## The question
 
@@ -54,7 +54,7 @@ The current baseline trains on a ~16k-crop scope (48 wells per cell type at 20x)
 
 The harness is the reusable core, designed to run on any 6-channel encoder. Every attribution method exposes one function returning a common `AttributionResult` (per-pixel saliency, per-channel importance scores, and method metadata), so the analysis layer treats all methods identically.
 
-Implemented and unit-tested today (`src/cerberus_neuro/`):
+Implemented and unit-tested today (`src/argus_cells/`):
 
 | Component | Module | What it does |
 |---|---|---|
@@ -98,12 +98,12 @@ No headline metrics are claimed beyond the two shipped numbers above. Every numb
 
 This repo started as `cerberus-neuro`: a three-headed multi-task ResNet34 (cell-type + organelle soft-segmentation + disease) framed as a public reproduction of a BMS internal proof-of-concept. Two task-specific models shipped under that framing (the cell-type and baseline-disease checkpoints above), validating the data pipeline and training infrastructure end-to-end on real biology.
 
-The multi-task framing was then retired. The disease classifier plus an honest interpretability harness is a stronger, more focused artifact than three heads competing for encoder capacity. Per the [design spec](docs/superpowers/specs/2026-05-12-argus-cells-design.md), the GitHub repo, the Python package, and the HF namespace migrate to `argus-cells` / `argus_cells` / `patrickjreed/argus-*` at the start of Phase 2 (production training). Until then, the Phase 1 harness runs in this repo against the existing `cerberus-neuro-v0-baseline` checkpoint, and the package name stays `cerberus_neuro`. The two shipped checkpoints keep their `cerberus-neuro-*` names as the historical predecessor.
+The multi-task framing was then retired. The disease classifier plus an honest interpretability harness is a stronger, more focused artifact than three heads competing for encoder capacity. Per the [design spec](docs/superpowers/specs/2026-05-12-argus-cells-design.md), the GitHub repo and the Python package were renamed to `argus-cells` and `argus_cells`, and new artifacts publish under the `patrickjreed/argus-*` HF namespace. The two shipped predecessor checkpoints keep their `cerberus-neuro-*` names as the historical predecessor.
 
 ## Repo layout
 
 ```
-src/cerberus_neuro/
+src/argus_cells/
   data.py                       manifest builder, IterableDataset, cell-aware tile selection
   model.py                      BaselineDiseaseClassifier (6-ch), ResNet34Encoder, extract_embedding()
   training.py                   train/eval loop, checkpointing, HF Hub push

@@ -8,7 +8,7 @@ For the **strategic background** behind the project (why it exists, the cerberus
 
 This repo is a portfolio research artifact authored by Patrick J. Reed, Ph.D. (computational biologist, 15+ years; recent Principal Scientist at Bristol Myers Squibb). The project is **`argus-cells`**: a 6-channel Cell Painting disease classifier on the Broad NeuroPainting iPSC dataset (22q11.2 deletion vs control), paired with an interpretability harness that explains, honestly and across architectures, what drives the disease call. The classifier is table stakes (target: match the existing 0.73 baseline); the interpretability story is the headline deliverable.
 
-**The repo is still named `cerberus-neuro` and the package is still `cerberus_neuro`.** Per the [argus-cells design spec](docs/superpowers/specs/2026-05-12-argus-cells-design.md) §7, the rename to `argus-cells` / `argus_cells` / `patrickjreed/argus-*` happens at the **start of Phase 2** (production training). Until then, Phase 1 (interpretability harness) runs in this repo against the existing `patrickjreed/cerberus-neuro-v0-baseline` checkpoint. Do not rename anything until Phase 2 begins.
+**The repo is now `argus-cells` and the package is now `argus_cells`.** Per the [argus-cells design spec](docs/superpowers/specs/2026-05-12-argus-cells-design.md) §7, the rename from `cerberus-neuro` / `cerberus_neuro` was carried out during Phase 2 (production training); new artifacts publish under `patrickjreed/argus-*`. The Phase 1 interpretability harness ran against the existing `patrickjreed/cerberus-neuro-v0-baseline` checkpoint, which keeps its name as the historical predecessor.
 
 **Retired framing (do not revive without explicit user approval):** the project was originally `cerberus-neuro`, a three-headed multi-task ResNet34 (cell-type + organelle soft-segmentation + disease) framed as a public reproduction of a BMS internal POC. That framing is dead. No virtual-staining head, no segmentation head, no Kendall uncertainty weighting, no brightfield-only-recovery question. Multi-task stays in the toolbox only if a future phase finds it useful.
 
@@ -16,7 +16,7 @@ This repo is a portfolio research artifact authored by Patrick J. Reed, Ph.D. (c
 - **Argus-RN34** — ResNet34, ImageNet1K_V1 pretrained, 6-channel `conv1` via tile-and-scale, GradCAM attribution. Exists today as the 0.73 baseline checkpoint (`BaselineDiseaseClassifier` in `model.py`).
 - **Argus-CCT** — Compact Convolutional Transformer, from scratch, 6-channel native, attention-rollout attribution. Arrives in Phase 2.
 
-The interpretability harness (the deliverable) lives in `src/cerberus_neuro/{attribution,probes,analysis}/`: channel ablation, GradCAM, Integrated Gradients, donor-confound probe, and cell-type stratification, all behind a common `AttributionResult` interface.
+The interpretability harness (the deliverable) lives in `src/argus_cells/{attribution,probes,analysis}/`: channel ablation, GradCAM, Integrated Gradients, donor-confound probe, and cell-type stratification, all behind a common `AttributionResult` interface.
 
 The artifact is positioned for senior IC roles at:
 - **Recursion, Insitro, Iambic Therapeutics** — image-based CRISPR perturbation / Cell Painting / multi-task vision specifically
@@ -49,7 +49,7 @@ VS Code (local)  →  git push  →  GitHub
 - **Code lives locally** and is edited in VS Code.
 - **Day-to-day work runs on Google Colab.** Patrick has Colab Pro available; default to Free first to enforce scope discipline, escalate to Pro when actually needed.
 - **Full-scale / longer training runs use the `Dockerfile`** in this repo. Built locally for testing; deployed to Lambda Cloud / RunPod / Paperspace Pro when an A100 hour or two is genuinely required (~$2-15 per converged run).
-- **Each Colab notebook reinstalls `cerberus_neuro` from GitHub** at the top: `!pip install -q git+https://github.com/PatrickJReed/cerberus-neuro.git@main`.
+- **Each Colab notebook reinstalls `argus_cells` from GitHub** at the top: `!pip install -q git+https://github.com/PatrickJReed/argus-cells.git@main`.
 - **Artifacts persist on Hugging Face Hub** (account: `patrickjreed`). Model checkpoints → HF model repo. Aggregated derived datasets → HF dataset repo.
 
 Onboarding details: `docs/SETUP.md`.
@@ -76,7 +76,7 @@ These constraints exist because the project must ship in 6–8 weeks of evening 
 ### Repo discipline
 
 - **Lean module architecture.** Do not pre-create empty `data/`, `models/`, `training/`, `eval/` Python packages until there is real code to put in them. Module structure should emerge from working code.
-- **Notebooks are the execution surface, not the library.** `src/cerberus_neuro/` is reusable Python utilities; notebooks orchestrate analyses and produce figures. Keep notebooks thin (call into `src/`); keep `src/` thin (utilities only, not workflow logic).
+- **Notebooks are the execution surface, not the library.** `src/argus_cells/` is reusable Python utilities; notebooks orchestrate analyses and produce figures. Keep notebooks thin (call into `src/`); keep `src/` thin (utilities only, not workflow logic).
 - **Commit notebooks with cleared outputs.**
 - **Persistent caches** go to `/content/drive/MyDrive/cerberus-neuro/cache/` (Colab) or HF datasets, never to repo paths. Cache directory should be configurable.
 
@@ -96,8 +96,8 @@ Patrick has explicit voice preferences captured at `/Users/patrickreed/NewRoleEf
 - Ruff for lint + format (`ruff check . && ruff format .`). Config in `pyproject.toml`.
 - Build via `hatchling`. Editable install: `pip install -e ".[dev,training]"`.
 - PyTorch is required for training (in `[training]` extra). Default `pip install -e .` is the lighter package without torch for those who only want to run analysis utilities.
-- Notebooks live in `notebooks/`, named with a `NN_short_description.ipynb` convention. Each notebook starts with: (a) markdown header with title + Open-In-Colab badge, (b) `!pip install -q git+...cerberus-neuro.git@main` cell, (c) HF login cell (Colab Secret `HF_TOKEN`), (d) optional Drive mount cell, (e) work cells. Pattern is established in `notebooks/00_environment_smoke.ipynb` — copy that as the template.
-- Dockerfile is at the repo root. Tag local builds as `cerberus-neuro:latest`. See `docs/SETUP.md` for cloud-platform specifics.
+- Notebooks live in `notebooks/`, named with a `NN_short_description.ipynb` convention. Each notebook starts with: (a) markdown header with title + Open-In-Colab badge, (b) `!pip install -q git+...argus-cells.git@main` cell, (c) HF login cell (Colab Secret `HF_TOKEN`), (d) optional Drive mount cell, (e) work cells. Pattern is established in `notebooks/00_environment_smoke.ipynb` — copy that as the template.
+- Dockerfile is at the repo root. Tag local builds as `argus-cells:latest`. See `docs/SETUP.md` for cloud-platform specifics.
 
 ## What NOT to do
 
@@ -141,6 +141,6 @@ The CLAUDE.md you are reading was just refreshed from the stale "scaffold only" 
 
 **Phase 0 (done):** donor audit cleared the PROCEED gate (24 donors/condition, imbalance CV near 0, crop budget sufficient). See `docs/superpowers/results/2026-05-12-phase-0-donor-audit.md`.
 
-**Phase 1 (in flight):** the interpretability harness is **code-complete and unit-tested** (33 tests passing) in `src/cerberus_neuro/{attribution,probes,analysis}/`, and `notebooks/04_phase_1_harness.ipynb` is fully scaffolded (14 cells, outputs cleared). Remaining Phase 1 work (plan Tasks 15-17): **(1)** run the notebook on Colab against the 0.73 checkpoint and pull the executed copy back; **(2)** write the Phase 1 interpretability results doc with the Phase 2 gate decision; **(3)** announce. Attention rollout and cross-architecture agreement are deliberately deferred to Phase 2 (they need Argus-CCT).
+**Phase 1 (in flight):** the interpretability harness is **code-complete and unit-tested** (33 tests passing) in `src/argus_cells/{attribution,probes,analysis}/`, and `notebooks/04_phase_1_harness.ipynb` is fully scaffolded (14 cells, outputs cleared). Remaining Phase 1 work (plan Tasks 15-17): **(1)** run the notebook on Colab against the 0.73 checkpoint and pull the executed copy back; **(2)** write the Phase 1 interpretability results doc with the Phase 2 gate decision; **(3)** announce. Attention rollout and cross-architecture agreement are deliberately deferred to Phase 2 (they need Argus-CCT).
 
-**Known debt:** repo carries ~100 cosmetic ruff lint findings (import sorting, unused imports, notebook E402); no functional bugs. Package/repo rename to `argus-cells` is intentionally deferred to Phase 2.
+**Known debt:** repo carries ~100 cosmetic ruff lint findings (import sorting, unused imports, notebook E402); no functional bugs. The package/repo rename to `argus-cells` / `argus_cells` was carried out in Phase 2.

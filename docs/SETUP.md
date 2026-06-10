@@ -1,4 +1,4 @@
-# cerberus-neuro — first-time setup
+# argus-cells — first-time setup
 
 One-time setup for the four resources this project uses: GitHub (code), Hugging Face Hub (artifacts), Google Colab (interactive compute), Docker (portable training).
 
@@ -36,14 +36,14 @@ For Colab, verify by opening any notebook on colab.research.google.com and confi
 
 If any of these are not done, start with `~/Sandbox/cellduet/docs/SETUP.md` Sections 1–3.
 
-## 2. Push cerberus-neuro to GitHub
+## 2. Push argus-cells to GitHub
 
 ```bash
-cd ~/Sandbox/cerberus-neuro
-gh repo create PatrickJReed/cerberus-neuro --public --source=. --remote=origin --push
+cd ~/Sandbox/argus-cells
+gh repo create PatrickJReed/argus-cells --public --source=. --remote=origin --push
 ```
 
-The repo URL becomes `https://github.com/PatrickJReed/cerberus-neuro`.
+The repo URL becomes `https://github.com/PatrickJReed/argus-cells`.
 
 ## 3. Docker setup
 
@@ -68,8 +68,8 @@ open -a Docker      # start the daemon
 After Docker is running, build the image:
 
 ```bash
-cd ~/Sandbox/cerberus-neuro
-docker build -t cerberus-neuro:latest .
+cd ~/Sandbox/argus-cells
+docker build -t argus-cells:latest .
 ```
 
 First build pulls the PyTorch CUDA base image (~5-8 GB) and takes 10–20 min. Subsequent builds are fast.
@@ -77,7 +77,7 @@ First build pulls the PyTorch CUDA base image (~5-8 GB) and takes 10–20 min. S
 ### Verify the local image
 
 ```bash
-docker run --rm cerberus-neuro:latest python -c "import cerberus_neuro; print(cerberus_neuro.__version__)"
+docker run --rm argus-cells:latest python -c "import argus_cells; print(argus_cells.__version__)"
 ```
 
 Should print the version. (CPU-only on a Mac; the image is ready for GPU when run on a GPU host.)
@@ -106,8 +106,8 @@ docker run --gpus all --rm -it \
     -v $(pwd)/data:/workspace/data \
     -v $(pwd)/checkpoints:/workspace/checkpoints \
     -e HF_TOKEN=$HF_TOKEN \
-    cerberus-neuro:latest \
-    python -m cerberus_neuro.train --config configs/default.yaml
+    argus-cells:latest \
+    python -m argus_cells.train --config configs/default.yaml
 ```
 
 (Training config doesn't exist yet; this is the pattern.)
@@ -119,9 +119,9 @@ When v0 ships and you need a full-scale training run:
 1. Push code to GitHub.
 2. Spin up a Lambda Cloud A100 instance ([cloud.lambda.ai](https://cloud.lambda.ai)) — ~$1.10/hr.
 3. SSH in: `ssh ubuntu@<lambda-ip>`
-4. `git clone https://github.com/PatrickJReed/cerberus-neuro.git && cd cerberus-neuro`
-5. `docker build -t cerberus-neuro:latest .` (or pull if you've pushed to a registry)
-6. `docker run --gpus all -e HF_TOKEN=$HF_TOKEN cerberus-neuro:latest python -m cerberus_neuro.train ...`
+4. `git clone https://github.com/PatrickJReed/argus-cells.git && cd argus-cells`
+5. `docker build -t argus-cells:latest .` (or pull if you've pushed to a registry)
+6. `docker run --gpus all -e HF_TOKEN=$HF_TOKEN argus-cells:latest python -m argus_cells.train ...`
 7. Checkpoint pushed to HF mid-run; can stop the instance once the run completes.
 
 Total cost for a converged run: usually under $15.
@@ -132,11 +132,11 @@ Alternative providers with similar workflows: RunPod, Paperspace, vast.ai. RunPo
 
 Same pattern as cellduet:
 
-1. Edit `src/cerberus_neuro/*.py` and notebooks in VS Code locally.
+1. Edit `src/argus_cells/*.py` and notebooks in VS Code locally.
 2. Commit and push to GitHub.
 3. Choose the runtime:
-   - **Colab** (small / interactive work): `https://colab.research.google.com/github/PatrickJReed/cerberus-neuro/blob/main/notebooks/<notebook>.ipynb`
-   - **Local Docker** (testing the container): `docker run --rm -it -p 8888:8888 cerberus-neuro:latest jupyter lab --ip=0.0.0.0 --allow-root --no-browser`
+   - **Colab** (small / interactive work): `https://colab.research.google.com/github/PatrickJReed/argus-cells/blob/main/notebooks/<notebook>.ipynb`
+   - **Local Docker** (testing the container): `docker run --rm -it -p 8888:8888 argus-cells:latest jupyter lab --ip=0.0.0.0 --allow-root --no-browser`
    - **Cloud Docker** (full training): SSH in, `docker run --gpus all ...`
 
 ## Per-session checklist
@@ -146,10 +146,10 @@ Local (VS Code):
   [ ] git pull
   [ ] edit code/notebooks
   [ ] git add + commit + push
-  [ ] (if container changed) docker build -t cerberus-neuro:latest .
+  [ ] (if container changed) docker build -t argus-cells:latest .
 
 Colab (interactive work):
-  [ ] open notebook from github.com/PatrickJReed/cerberus-neuro
+  [ ] open notebook from github.com/PatrickJReed/argus-cells
   [ ] Runtime → T4 GPU
   [ ] run install + HF login + Drive mount cells
   [ ] do work; checkpoint to Drive AND/OR HF before disconnect
@@ -157,14 +157,14 @@ Colab (interactive work):
 Cloud GPU (full training, when needed):
   [ ] spin up A100 instance on Lambda / RunPod / Paperspace
   [ ] git clone, docker build (or pull image)
-  [ ] docker run --gpus all -e HF_TOKEN=... cerberus-neuro:latest python -m cerberus_neuro.train ...
+  [ ] docker run --gpus all -e HF_TOKEN=... argus-cells:latest python -m argus_cells.train ...
   [ ] verify HF checkpoints landing
   [ ] tear down instance when run completes
 ```
 
 ## Known sharp edges
 
-- **Colab does not run the Dockerfile.** Colab gives you its own runtime with pre-installed CUDA and PyTorch. Notebooks installing `cerberus_neuro` from GitHub via `pip install -q git+...` work directly without the container. The Docker setup is for local + cloud GPU rentals only.
+- **Colab does not run the Dockerfile.** Colab gives you its own runtime with pre-installed CUDA and PyTorch. Notebooks installing `argus_cells` from GitHub via `pip install -q git+...` work directly without the container. The Docker setup is for local + cloud GPU rentals only.
 - **HF write tokens stored in Lambda/RunPod containers** should be passed via `-e HF_TOKEN=$HF_TOKEN` at runtime, not baked into the image. The Dockerfile in this repo never embeds the token.
 - **Lambda Cloud / RunPod instances are ephemeral.** Save artifacts to HF (or to attached persistent disk) before tearing down. The container itself is recreated each run.
 - **First Docker build is slow** (~10-20 min on Mac due to base-image pull). Subsequent builds with cached layers are seconds.
